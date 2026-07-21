@@ -1,0 +1,21 @@
+<?php
+// logout.php - ออกจากระบบคลังสะสมผลงานดิจิทัล
+require_once 'config.php';
+
+// ล้างข้อมูลเซสชั่นผู้ใช้ทั้งหมด
+$_SESSION = array();
+
+if (ini_get("session.use_cookies")) {
+    $params = session_get_cookie_params();
+    setcookie(session_name(), '', time() - 42000,
+        $params["path"], $params["domain"],
+        $params["secure"], $params["httponly"]
+    );
+}
+
+session_destroy();
+
+// เด้งกลับไปที่หน้าหลักทันที
+header("Location: index.php");
+exit;
+?>
