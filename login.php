@@ -77,12 +77,8 @@ if (isset($_POST['login'])) {
             </button>
         </form>
 
-        <!-- บัญชีสำหรับการทดสอบและการลงชื่อเข้าใช้เบื้องต้น -->
-        <div class="pt-5 border-t border-gray-150 text-left text-[11px] text-gray-400 leading-relaxed bg-slate-50/50 p-4 rounded-xl space-y-1">
-            <span class="font-bold text-gray-600 block mb-1">🔑 บัญชีเข้าทดสอบระบบ:</span>
-            <p>• <strong class="text-blue-900">ผู้ดูแลระบบ:</strong> username: <code class="font-bold text-gray-700 font-mono">admin</code> / รหัสผ่าน: <code class="font-bold text-gray-700 font-mono">admin1234</code></p>
-            <p>• <strong class="text-amber-700">คุณครูผู้สอน:</strong> username: <code class="font-bold text-gray-700 font-mono">teacher1</code> / รหัสผ่าน: <code class="font-bold text-gray-700 font-mono">teacher1234</code></p>
-        </div>
+        <!-- ส่วนล่าง -->
+        <div class="pt-2 border-t border-gray-100"></div>
 
         <div class="text-center">
             <a href="index.php" class="text-xs font-bold text-gray-400 hover:text-blue-900 transition-colors">

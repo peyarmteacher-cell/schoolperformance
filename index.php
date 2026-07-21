@@ -121,6 +121,42 @@ if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') {
         }
     }
 
+    // แก้ไขข้อมูลสมาชิกคุณครูโดยผู้ดูแลระบบ (Admin)
+    if (isset($_POST['edit_user'])) {
+        $target_user_id = $conn->real_escape_string($_POST['target_user_id']);
+        $edit_name = $conn->real_escape_string($_POST['edit_name']);
+        $edit_username = $conn->real_escape_string($_POST['edit_username']);
+        $edit_password = $conn->real_escape_string($_POST['edit_password']);
+        $edit_email = $conn->real_escape_string($_POST['edit_email']);
+        $edit_role = $conn->real_escape_string($_POST['edit_role']);
+        
+        $check = $conn->query("SELECT id FROM users WHERE username = '$edit_username' AND id != '$target_user_id'");
+        if ($check && $check->num_rows > 0) {
+            header("Location: index.php?tab=setup&subtab=users&edit_user_id=$target_user_id&err=username_exists");
+            exit;
+        } else {
+            $avatarUrl = isset($_POST['edit_avatar_url']) ? $_POST['edit_avatar_url'] : 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150'; // URL เดิม
+            
+            if (isset($_FILES['edit_avatar_file']) && $_FILES['edit_avatar_file']['error'] === UPLOAD_ERR_OK) {
+                $uploaded_avatar = save_uploaded_image('edit_avatar_file', 'avatar');
+                if (!empty($uploaded_avatar)) {
+                    $avatarUrl = $uploaded_avatar;
+                }
+            }
+            
+            $conn->query("UPDATE users SET name='$edit_name', username='$edit_username', password='$edit_password', email='$edit_email', role='$edit_role', avatarUrl='$avatarUrl' WHERE id='$target_user_id'");
+            
+            // หาก Admin แก้ไขตัวเอง ให้เซสชันเปลี่ยนชื่อตามไปด้วย
+            if ($target_user_id === $_SESSION['user_id']) {
+                $_SESSION['user_name'] = $edit_name;
+                $_SESSION['user_role'] = $edit_role;
+            }
+            
+            header("Location: index.php?tab=setup&subtab=users&msg=user_updated");
+            exit;
+        }
+    }
+
     // ลบสิทธิ์ผู้ใช้ระบบ
     if (isset($_GET['delete_user_id'])) {
         $delete_user_id = $conn->real_escape_string($_GET['delete_user_id']);
@@ -130,6 +166,39 @@ if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') {
         }
         $conn->query("DELETE FROM users WHERE id = '$delete_user_id'");
         header("Location: index.php?tab=setup&subtab=users&msg=user_deleted");
+        exit;
+    }
+}
+
+// แก้ไขข้อมูลโปรไฟล์ส่วนตัวของผู้ใช้งานที่เข้าระบบอยู่ (คุณครู และ แอดมิน)
+if (isset($_SESSION['user_id']) && isset($_POST['update_profile'])) {
+    $user_id = $_SESSION['user_id'];
+    $name = $conn->real_escape_string($_POST['profile_name']);
+    $username = $conn->real_escape_string($_POST['profile_username']);
+    $password = $conn->real_escape_string($_POST['profile_password']);
+    $email = $conn->real_escape_string($_POST['profile_email']);
+    
+    // เช็คก่อนว่า username ไปซ้ำกับคนอื่นไหม
+    $check = $conn->query("SELECT id FROM users WHERE username = '$username' AND id != '$user_id'");
+    if ($check && $check->num_rows > 0) {
+        header("Location: index.php?tab=profile&err=username_exists");
+        exit;
+    } else {
+        $avatarUrl = isset($_POST['profile_avatar_url']) ? $_POST['profile_avatar_url'] : 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150'; // URL เดิม
+        
+        if (isset($_FILES['profile_avatar_file']) && $_FILES['profile_avatar_file']['error'] === UPLOAD_ERR_OK) {
+            $uploaded_avatar = save_uploaded_image('profile_avatar_file', 'avatar');
+            if (!empty($uploaded_avatar)) {
+                $avatarUrl = $uploaded_avatar;
+            }
+        }
+        
+        $conn->query("UPDATE users SET name='$name', username='$username', password='$password', email='$email', avatarUrl='$avatarUrl' WHERE id='$user_id'");
+        
+        // อัปเดตข้อมูลในเซสชันด้วย
+        $_SESSION['user_name'] = $name;
+        
+        header("Location: index.php?tab=profile&msg=profile_updated");
         exit;
     }
 }
@@ -348,6 +417,10 @@ $latest_res = $conn->query("SELECT * FROM portfolios WHERE approved=1 ORDER BY c
                         <?php if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin'): ?>
                             <a href="index.php?tab=setup" class="px-4 py-2 rounded-lg text-sm font-medium text-blue-100 hover:text-white hover:bg-blue-800/60 transition-all duration-200 <?php if($active_tab === 'setup') echo 'tab-active'; ?>">⚙️ ตั้งค่า & โค้ด Apps Script</a>
                         <?php endif; ?>
+
+                        <?php if (isset($_SESSION['user_id'])): ?>
+                            <a href="index.php?tab=profile" class="px-4 py-2 rounded-lg text-sm font-medium text-blue-100 hover:text-white hover:bg-blue-800/60 transition-all duration-200 <?php if($active_tab === 'profile') echo 'tab-active'; ?>">👤 แก้ไขโปรไฟล์</a>
+                        <?php endif; ?>
                     </nav>
 
                     <!-- ปุ่มควบคุมในหน้าจอมือถือ -->
@@ -374,6 +447,9 @@ $latest_res = $conn->query("SELECT * FROM portfolios WHERE approved=1 ORDER BY c
             <?php if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin'): ?>
                 <a href="index.php?tab=setup" class="block px-4 py-3 rounded-lg text-sm font-medium text-blue-100 hover:bg-blue-900/60 <?php if($active_tab === 'setup') echo 'bg-amber-500 text-blue-950 font-semibold'; ?>">⚙️ ตั้งค่า & โค้ด Apps Script</a>
             <?php endif; ?>
+            <?php if (isset($_SESSION['user_id'])): ?>
+                <a href="index.php?tab=profile" class="block px-4 py-3 rounded-lg text-sm font-medium text-blue-100 hover:bg-blue-900/60 <?php if($active_tab === 'profile') echo 'bg-amber-500 text-blue-950 font-semibold'; ?>">👤 แก้ไขโปรไฟล์</a>
+            <?php endif; ?>
         </div>
     </header>
 
@@ -396,6 +472,10 @@ $latest_res = $conn->query("SELECT * FROM portfolios WHERE approved=1 ORDER BY c
                             echo 'ลงทะเบียนผู้ใช้งาน/บัญชีคุณครูเรียบร้อยแล้ว!';
                         } elseif ($_GET['msg'] === 'user_deleted') {
                             echo 'ลบข้อมูลผู้ใช้งานออกจากระบบเรียบร้อยแล้ว!';
+                        } elseif ($_GET['msg'] === 'user_updated') {
+                            echo 'อัปเดตข้อมูลบัญชีคุณครูเรียบร้อยแล้ว!';
+                        } elseif ($_GET['msg'] === 'profile_updated') {
+                            echo 'อัปเดตข้อมูลส่วนตัวและรูปภาพประจำตัวเรียบร้อยแล้ว!';
                         } else {
                             echo 'ทำรายการสำเร็จเรียบร้อยแล้ว!';
                         }
@@ -1411,46 +1491,127 @@ $latest_res = $conn->query("SELECT * FROM portfolios WHERE approved=1 ORDER BY c
                     </script>
 
                 <!-- SUB TAB 3: User/Teacher Accounts Management CRUD -->
-                <?php elseif ($sub_tab === 'users'): ?>
+                <?php 
+                elseif ($sub_tab === 'users'): 
+                    $edit_u = null;
+                    if (isset($_GET['edit_user_id'])) {
+                        $edit_user_id = $conn->real_escape_string($_GET['edit_user_id']);
+                        $edit_res = $conn->query("SELECT * FROM users WHERE id = '$edit_user_id'");
+                        if ($edit_res && $edit_res->num_rows > 0) {
+                            $edit_u = $edit_res->fetch_assoc();
+                        }
+                    }
+                ?>
                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
                         
-                        <!-- ฝั่งซ้าย: ฟอร์มลงทะเบียนเพิ่มผู้ใช้รายบุคคล -->
+                        <!-- ฝั่งซ้าย: ฟอร์มเพิ่ม/แก้ไขรายบุคคล -->
                         <div class="bg-slate-50 p-6 rounded-2xl border border-slate-200 text-left space-y-4">
-                            <div>
-                                <h3 class="font-extrabold text-xs text-blue-900">👥 ลงทะเบียนผู้ใช้งานระบบใหม่ (ครู / แอดมิน)</h3>
-                                <p class="text-[10px] text-slate-400 font-medium">บัญชีที่เพิ่มจะสามารถใช้รหัสนี้เข้าระบบส่งผลงานและจัดทำรายงานได้ทันที</p>
-                            </div>
-                            
-                            <form method="POST" class="space-y-3.5 text-xs">
+                            <?php if ($edit_u): ?>
                                 <div>
-                                    <label class="block mb-1 font-bold text-slate-700">👤 ชื่อ-นามสกุลจริง</label>
-                                    <input type="text" name="new_name" required placeholder="เช่น คุณครูเพียรพรรณ ใจดี" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-white text-xs font-medium text-slate-800">
+                                    <h3 class="font-extrabold text-xs text-amber-600">📝 แก้ไขข้อมูลคุณครู / แอดมิน</h3>
+                                    <p class="text-[10px] text-slate-400 font-medium">แก้ไขรายละเอียดของบัญชีผู้ใช้รวมถึงรหัสผ่านและรูปประจำตัว</p>
                                 </div>
+                                
+                                <form method="POST" enctype="multipart/form-data" class="space-y-3.5 text-xs">
+                                    <input type="hidden" name="target_user_id" value="<?php echo htmlspecialchars($edit_u['id']); ?>">
+                                    <input type="hidden" name="edit_avatar_url" id="edit_avatar_url_field" value="<?php echo htmlspecialchars($edit_u['avatarUrl']); ?>">
+                                    
+                                    <!-- รูปแสดงตัวอย่างโปรไฟล์ปัจจุบัน -->
+                                    <div class="flex items-center gap-3 bg-white p-3 rounded-xl border border-slate-200">
+                                        <img id="edit-avatar-preview" src="<?php echo htmlspecialchars($edit_u['avatarUrl'] ?: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150'); ?>" class="w-12 h-12 rounded-full object-cover border border-slate-200 bg-slate-50">
+                                        <div class="space-y-0.5">
+                                            <p class="font-bold text-slate-700">รูปภาพประจำตัว</p>
+                                            <p class="text-[9px] text-slate-400 font-medium">แสดงในรายการผลงานเมื่อเชื่อมต่อ</p>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label class="block mb-1 font-bold text-slate-700">📤 อัปโหลดรูปประจำตัวใหม่</label>
+                                        <input type="file" name="edit_avatar_file" accept="image/*" class="w-full text-xs text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-[10px] file:font-extrabold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" onchange="previewEditAvatar(this)">
+                                    </div>
+                                    
+                                    <div>
+                                        <label class="block mb-1 font-bold text-slate-700">👤 ชื่อ-นามสกุลจริง</label>
+                                        <input type="text" name="edit_name" value="<?php echo htmlspecialchars($edit_u['name']); ?>" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-white text-xs font-medium text-slate-800">
+                                    </div>
+                                    <div>
+                                        <label class="block mb-1 font-bold text-slate-700">🔑 ชื่อผู้ใช้งานสำหรับเข้าสู่ระบบ (Username)</label>
+                                        <input type="text" name="edit_username" value="<?php echo htmlspecialchars($edit_u['username']); ?>" required pattern="[a-zA-Z0-9_]+" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-white text-xs font-medium text-slate-800">
+                                    </div>
+                                    <div>
+                                        <label class="block mb-1 font-bold text-slate-700">🔒 รหัสผ่านเข้าใช้งาน (Password)</label>
+                                        <input type="text" name="edit_password" value="<?php echo htmlspecialchars($edit_u['password']); ?>" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-white text-xs font-medium text-slate-800">
+                                    </div>
+                                    <div>
+                                        <label class="block mb-1 font-bold text-slate-700">📧 อีเมลติดต่อคุณครู (Email)</label>
+                                        <input type="email" name="edit_email" value="<?php echo htmlspecialchars($edit_u['email']); ?>" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-white text-xs font-medium text-slate-800">
+                                    </div>
+                                    <div>
+                                        <label class="block mb-1 font-bold text-slate-700">🎖️ สิทธิ์และระดับการใช้ประโยชน์ (Role)</label>
+                                        <select name="edit_role" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-white text-xs text-slate-800">
+                                            <option value="teacher" <?php echo $edit_u['role'] === 'teacher' ? 'selected' : ''; ?>>คุณครูผู้สอน (Teacher - จัดทำคลังตนเอง)</option>
+                                            <option value="admin" <?php echo $edit_u['role'] === 'admin' ? 'selected' : ''; ?>>ผู้ดูแลระบบ (Admin - ตรวจสอบและแก้ไขทุกส่วน)</option>
+                                        </select>
+                                    </div>
+                                    <div class="flex gap-2 pt-2">
+                                        <button type="submit" name="edit_user" class="flex-1 py-2.5 bg-amber-500 hover:bg-amber-400 text-blue-950 font-extrabold text-xs rounded-xl shadow-md cursor-pointer transition-all">
+                                            💾 บันทึกการแก้ไข
+                                        </button>
+                                        <a href="index.php?tab=setup&subtab=users" class="px-3.5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-extrabold text-xs rounded-xl flex items-center justify-center transition-all">
+                                            ยกเลิก
+                                        </a>
+                                    </div>
+                                </form>
+
+                                <script>
+                                    function previewEditAvatar(input) {
+                                        if (input.files && input.files[0]) {
+                                            const reader = new FileReader();
+                                            reader.onload = function(e) {
+                                                document.getElementById('edit-avatar-preview').src = e.target.result;
+                                                document.getElementById('edit_avatar_url_field').value = e.target.result;
+                                            };
+                                            reader.readAsDataURL(input.files[0]);
+                                        }
+                                    }
+                                </script>
+                            <?php else: ?>
                                 <div>
-                                    <label class="block mb-1 font-bold text-slate-700">🔑 ชื่อผู้ใช้งานสำหรับเข้าสู่ระบบ (Username)</label>
-                                    <input type="text" name="new_username" required placeholder="ใช้ตัวอักษรภาษาอังกฤษและตัวเลขเท่านั้น" pattern="[a-zA-Z0-9_]+" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-white text-xs font-medium text-slate-800">
+                                    <h3 class="font-extrabold text-xs text-blue-900">👥 ลงทะเบียนผู้ใช้งานระบบใหม่ (ครู / แอดมิน)</h3>
+                                    <p class="text-[10px] text-slate-400 font-medium">บัญชีที่เพิ่มจะสามารถใช้รหัสนี้เข้าระบบส่งผลงานและจัดทำรายงานได้ทันที</p>
                                 </div>
-                                <div>
-                                    <label class="block mb-1 font-bold text-slate-700">🔒 รหัสผ่านเข้าใช้งาน (Password)</label>
-                                    <input type="text" name="new_password" required placeholder="รหัสผ่านตามใจชอบ" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-white text-xs font-medium text-slate-800">
-                                </div>
-                                <div>
-                                    <label class="block mb-1 font-bold text-slate-700">📧 อีเมลติดต่อคุณครู (Email)</label>
-                                    <input type="email" name="new_email" placeholder="เช่น teacher@school.ac.th" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-white text-xs font-medium text-slate-800">
-                                </div>
-                                <div>
-                                    <label class="block mb-1 font-bold text-slate-700">🎖️ สิทธิ์และระดับการใช้ประโยชน์ (Role)</label>
-                                    <select name="new_role" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-white text-xs text-slate-800">
-                                        <option value="teacher">คุณครูผู้สอน (Teacher - จัดทำคลังตนเอง)</option>
-                                        <option value="admin">ผู้ดูแลระบบ (Admin - ตรวจสอบและแก้ไขทุกส่วน)</option>
-                                    </select>
-                                </div>
-                                <div class="pt-2">
-                                    <button type="submit" name="add_user" class="w-full py-2.5 bg-blue-900 hover:bg-blue-800 text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer transition-all">
-                                        ➕ ลงทะเบียนและบันทึกผู้ใช้
-                                    </button>
-                                </div>
-                            </form>
+                                
+                                <form method="POST" class="space-y-3.5 text-xs">
+                                    <div>
+                                        <label class="block mb-1 font-bold text-slate-700">👤 ชื่อ-นามสกุลจริง</label>
+                                        <input type="text" name="new_name" required placeholder="เช่น คุณครูเพียรพรรณ ใจดี" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-white text-xs font-medium text-slate-800">
+                                    </div>
+                                    <div>
+                                        <label class="block mb-1 font-bold text-slate-700">🔑 ชื่อผู้ใช้งานสำหรับเข้าสู่ระบบ (Username)</label>
+                                        <input type="text" name="new_username" required placeholder="ใช้ตัวอักษรภาษาอังกฤษและตัวเลขเท่านั้น" pattern="[a-zA-Z0-9_]+" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-white text-xs font-medium text-slate-800">
+                                    </div>
+                                    <div>
+                                        <label class="block mb-1 font-bold text-slate-700">🔒 รหัสผ่านเข้าใช้งาน (Password)</label>
+                                        <input type="text" name="new_password" required placeholder="รหัสผ่านตามใจชอบ" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-white text-xs font-medium text-slate-800">
+                                    </div>
+                                    <div>
+                                        <label class="block mb-1 font-bold text-slate-700">📧 อีเมลติดต่อคุณครู (Email)</label>
+                                        <input type="email" name="new_email" placeholder="เช่น teacher@school.ac.th" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-white text-xs font-medium text-slate-800">
+                                    </div>
+                                    <div>
+                                        <label class="block mb-1 font-bold text-slate-700">🎖️ สิทธิ์และระดับการใช้ประโยชน์ (Role)</label>
+                                        <select name="new_role" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-white text-xs text-slate-800">
+                                            <option value="teacher">คุณครูผู้สอน (Teacher - จัดทำคลังตนเอง)</option>
+                                            <option value="admin">ผู้ดูแลระบบ (Admin - ตรวจสอบและแก้ไขทุกส่วน)</option>
+                                        </select>
+                                    </div>
+                                    <div class="pt-2">
+                                        <button type="submit" name="add_user" class="w-full py-2.5 bg-blue-900 hover:bg-blue-800 text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer transition-all">
+                                            ➕ ลงทะเบียนและบันทึกผู้ใช้
+                                        </button>
+                                    </div>
+                                </form>
+                            <?php endif; ?>
                         </div>
 
                         <!-- ฝั่งขวา: รายชื่อคุณครูผู้ใช้ระบบที่มีอยู่ทั้งหมดใน MySQL -->
@@ -1491,13 +1652,18 @@ $latest_res = $conn->query("SELECT * FROM portfolios WHERE approved=1 ORDER BY c
                                                         <?php echo $u['role'] === 'admin' ? 'Admin' : 'Teacher'; ?>
                                                     </span>
                                                 </td>
-                                                <td class="p-3 text-center font-bold">
+                                                <td class="p-3 text-center font-bold space-x-1.5">
+                                                    <a href="index.php?tab=setup&subtab=users&edit_user_id=<?php echo $u['id']; ?>" class="text-amber-600 hover:text-amber-900 hover:underline">
+                                                        แก้ไข
+                                                    </a>
                                                     <?php if ($u['id'] !== $_SESSION['user_id']): ?>
+                                                        <span class="text-slate-300">|</span>
                                                         <a href="index.php?tab=setup&subtab=users&delete_user_id=<?php echo $u['id']; ?>" onclick="return confirm('คุณต้องการลบสิทธิ์บัญชีคุณครูและยกเลิกการเข้าใช้งานระบบของ <?php echo htmlspecialchars($u['name']); ?> หรือไม่?')" class="text-rose-600 hover:text-rose-900 hover:underline">
                                                             ลบบัญชี
                                                         </a>
                                                     <?php else: ?>
-                                                        <span class="text-slate-400 font-medium">บัญชีปัจจุบันของคุณ</span>
+                                                        <span class="text-slate-300">|</span>
+                                                        <span class="text-slate-400 font-medium">บัญชีคุณ</span>
                                                     <?php endif; ?>
                                                 </td>
                                             </tr>
@@ -1518,7 +1684,91 @@ $latest_res = $conn->query("SELECT * FROM portfolios WHERE approved=1 ORDER BY c
                 <?php endif; ?>
 
             </section>
-        <?php endif; ?>
+        <?php 
+        elseif ($active_tab === 'profile' && isset($_SESSION['user_id'])): 
+            $me_id = $_SESSION['user_id'];
+            $me_res = $conn->query("SELECT * FROM users WHERE id = '$me_id'");
+            $me = ($me_res && $me_res->num_rows > 0) ? $me_res->fetch_assoc() : null;
+            if ($me):
+        ?>
+            <section class="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 text-left max-w-2xl mx-auto space-y-6">
+                <div class="border-b border-slate-100 pb-3">
+                    <h2 class="text-xl font-black text-slate-800">👤 แก้ไขข้อมูลโปรไฟล์ส่วนตัวคุณครู</h2>
+                    <p class="text-xs text-slate-400">อัปเดตชื่อผู้ใช้งาน รหัสผ่าน และอัปโหลดภาพประจำตัวของคุณเพื่อแสดงผลงานในระบบ</p>
+                </div>
+
+                <form method="POST" enctype="multipart/form-data" class="space-y-5 text-xs">
+                    <input type="hidden" name="profile_avatar_url" id="profile_avatar_url_field" value="<?php echo htmlspecialchars($me['avatarUrl']); ?>">
+
+                    <!-- รูปภาพโปรไฟล์ปัจจุบัน -->
+                    <div class="flex flex-col sm:flex-row items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                        <img id="my-avatar-preview" src="<?php echo htmlspecialchars($me['avatarUrl'] ?: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150'); ?>" class="w-20 h-20 rounded-full object-cover border-2 border-white shadow-md bg-white">
+                        <div class="space-y-1 text-center sm:text-left">
+                            <p class="font-bold text-sm text-slate-800"><?php echo htmlspecialchars($me['name']); ?></p>
+                            <span class="inline-flex px-2.5 py-0.5 rounded text-[10px] font-bold <?php echo $me['role'] === 'admin' ? 'bg-rose-500/10 text-rose-700 border border-rose-500/20' : 'bg-blue-500/10 text-blue-700 border border-blue-500/20'; ?>">
+                                <?php echo $me['role'] === 'admin' ? 'ผู้ดูแลระบบ (Admin)' : 'คุณครูผู้สอน (Teacher)'; ?>
+                            </span>
+                            <p class="text-[10px] text-slate-400">รูปภาพนี้จะปรากฏอัตโนมัติบนเกียรติบัตรและหลักฐานเชิงประจักษ์ของคุณครู</p>
+                        </div>
+                    </div>
+
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block mb-1 font-bold text-slate-700">📤 อัปโหลดรูปประจำตัวใหม่</label>
+                            <input type="file" name="profile_avatar_file" accept="image/*" class="w-full text-xs text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-[11px] file:font-extrabold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 cursor-pointer" onchange="previewMyAvatar(this)">
+                            <p class="text-[9px] text-slate-400 font-medium mt-1">💡 รองรับรูปภาพแนวตั้ง/สี่เหลี่ยมจัตุรัสทุกชนิด ไฟล์รูปจะถูกเก็บรักษาไว้โดยตรงในระบบประกันคุณภาพ</p>
+                        </div>
+
+                        <div>
+                            <label class="block mb-1 font-bold text-slate-700">👤 ชื่อ-นามสกุลจริงของคุณครู</label>
+                            <input type="text" name="profile_name" value="<?php echo htmlspecialchars($me['name']); ?>" required class="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-slate-50/50 text-xs font-medium text-slate-800">
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block mb-1 font-bold text-slate-700">🔑 ชื่อผู้ใช้งาน (Username)</label>
+                                <input type="text" name="profile_username" value="<?php echo htmlspecialchars($me['username']); ?>" required pattern="[a-zA-Z0-9_]+" class="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-slate-50/50 text-xs font-medium text-slate-800">
+                                <p class="text-[9px] text-slate-400 font-medium mt-1">เฉพาะอักษรภาษาอังกฤษ ตัวเลข และขีดล่างเท่านั้น</p>
+                            </div>
+                            <div>
+                                <label class="block mb-1 font-bold text-slate-700">🔒 รหัสผ่านใหม่ (Password)</label>
+                                <input type="text" name="profile_password" value="<?php echo htmlspecialchars($me['password']); ?>" required class="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-slate-50/50 text-xs font-medium text-slate-800">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block mb-1 font-bold text-slate-700">📧 อีเมลติดต่อคุณครู (Email)</label>
+                            <input type="email" name="profile_email" value="<?php echo htmlspecialchars($me['email']); ?>" placeholder="เช่น teacher@school.ac.th" class="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-slate-50/50 text-xs font-medium text-slate-800">
+                        </div>
+                    </div>
+
+                    <div class="pt-5 border-t border-slate-100 flex gap-3">
+                        <button type="submit" name="update_profile" class="flex-1 py-3 bg-blue-900 hover:bg-blue-800 text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer transition-all">
+                            💾 บันทึกข้อมูลและรูปโปรไฟล์
+                        </button>
+                        <a href="index.php?tab=dashboard" class="px-5 py-3 bg-slate-200 hover:bg-slate-300 text-slate-700 font-extrabold text-xs rounded-xl flex items-center justify-center transition-all">
+                            ยกเลิก
+                        </a>
+                    </div>
+                </form>
+
+                <script>
+                    function previewMyAvatar(input) {
+                        if (input.files && input.files[0]) {
+                            const reader = new FileReader();
+                            reader.onload = function(e) {
+                                document.getElementById('my-avatar-preview').src = e.target.result;
+                                document.getElementById('profile_avatar_url_field').value = e.target.result;
+                            };
+                            reader.readAsDataURL(input.files[0]);
+                        }
+                    }
+                </script>
+            </section>
+        <?php 
+            endif;
+        endif; 
+        ?>
 
     </main>
 
