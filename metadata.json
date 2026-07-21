@@ -1,0 +1,6 @@
+{
+  "name": "ระบบคลังผลงานและหลักฐานเชิงประจักษ์ โรงเรียนบ้านหนองหว้า",
+  "description": "ระบบจัดเก็บผลงานของโรงเรียน ครู และนักเรียน เพื่อการประกันคุณภาพและการประเมินสถานศึกษา",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
