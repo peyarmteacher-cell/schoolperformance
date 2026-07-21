@@ -48,7 +48,7 @@ if (!$years_result) {
     ");
 }
 
-// การอนุมัติและการลบผลงาน (เฉพาะ Admin)
+// การอนุมัติและการลบผลงาน และการตั้งค่าต่าง ๆ (เฉพาะ Admin)
 if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') {
     if (isset($_GET['approve_id'])) {
         $approve_id = $conn->real_escape_string($_GET['approve_id']);
@@ -62,18 +62,72 @@ if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') {
         header("Location: index.php?tab=" . urlencode($active_tab) . "&msg=deleted");
         exit;
     }
-    if (isset($_POST['save_settings'])) {
-        $school_name = $_POST['school_name'];
-        $school_logo = $_POST['school_logo'];
+    
+    // บันทึกระบบ Google Drive
+    if (isset($_POST['save_general_settings'])) {
         $google_drive_folder_id = $_POST['google_drive_folder_id'];
         $google_apps_script_url = $_POST['google_apps_script_url'];
 
-        set_setting($conn, 'school_name', $school_name);
-        set_setting($conn, 'school_logo', $school_logo);
         set_setting($conn, 'google_drive_folder_id', $google_drive_folder_id);
         set_setting($conn, 'google_apps_script_url', $google_apps_script_url);
 
-        header("Location: index.php?tab=setup&msg=settings_updated");
+        header("Location: index.php?tab=setup&subtab=general&msg=settings_updated");
+        exit;
+    }
+
+    // บันทึกระบบอัตลักษณ์โรงเรียน (Branding) พร้อมอัปโหลดโลโก้โดยตรงเก็บใน MySQL
+    if (isset($_POST['save_branding_settings'])) {
+        $school_name = $_POST['school_name'];
+        $school_logo = $_POST['school_logo']; // หากป้อนเป็น URL เดิม
+
+        if (isset($_FILES['school_logo_file']) && $_FILES['school_logo_file']['error'] === UPLOAD_ERR_OK) {
+            $file_tmp = $_FILES['school_logo_file']['tmp_name'];
+            $file_type = $_FILES['school_logo_file']['type'];
+            
+            if (str_starts_with($file_type, 'image/')) {
+                $file_data = file_get_contents($file_tmp);
+                $base64 = 'data:' . $file_type . ';base64,' . base64_encode($file_data);
+                $school_logo = $base64;
+            }
+        }
+
+        set_setting($conn, 'school_name', $school_name);
+        set_setting($conn, 'school_logo', $school_logo);
+
+        header("Location: index.php?tab=setup&subtab=branding&msg=settings_updated");
+        exit;
+    }
+
+    // เพิ่มรายชื่อคุณครูผู้ใช้ระบบ
+    if (isset($_POST['add_user'])) {
+        $new_username = $conn->real_escape_string($_POST['new_username']);
+        $new_password = $conn->real_escape_string($_POST['new_password']);
+        $new_name = $conn->real_escape_string($_POST['new_name']);
+        $new_email = $conn->real_escape_string($_POST['new_email']);
+        $new_role = $conn->real_escape_string($_POST['new_role']);
+        
+        $check = $conn->query("SELECT id FROM users WHERE username = '$new_username'");
+        if ($check && $check->num_rows > 0) {
+            header("Location: index.php?tab=setup&subtab=users&err=username_exists");
+            exit;
+        } else {
+            $new_id = 'user-' . time();
+            $conn->query("INSERT INTO users (id, username, password, name, email, role, avatarUrl) VALUES 
+                ('$new_id', '$new_username', '$new_password', '$new_name', '$new_email', '$new_role', 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150')");
+            header("Location: index.php?tab=setup&subtab=users&msg=user_added");
+            exit;
+        }
+    }
+
+    // ลบสิทธิ์ผู้ใช้ระบบ
+    if (isset($_GET['delete_user_id'])) {
+        $delete_user_id = $conn->real_escape_string($_GET['delete_user_id']);
+        if ($delete_user_id === $_SESSION['user_id']) {
+            header("Location: index.php?tab=setup&subtab=users&err=self_delete");
+            exit;
+        }
+        $conn->query("DELETE FROM users WHERE id = '$delete_user_id'");
+        header("Location: index.php?tab=setup&subtab=users&msg=user_deleted");
         exit;
     }
 }
@@ -91,6 +145,16 @@ if ($active_tab === 'list_school') {
 
 $year_filter = isset($_GET['year']) ? $_GET['year'] : '';
 $search_query = isset($_GET['search']) ? $_GET['search'] : '';
+$teacher_filter = isset($_GET['teacher_name']) ? $_GET['teacher_name'] : '';
+
+// ดึงรายชื่อคุณครูทั้งหมดเพื่อใช้ในตัวกรองคุณครูผู้รับผิดชอบผลงาน
+$all_teachers_res = $conn->query("SELECT id, name FROM users WHERE role = 'teacher' ORDER BY name ASC");
+$teachers_array = [];
+if ($all_teachers_res) {
+    while ($t_row = $all_teachers_res->fetch_assoc()) {
+        $teachers_array[] = $t_row;
+    }
+}
 
 // สร้างเงื่อนไขในการดึงข้อมูลหลัก
 $where_clauses = [];
@@ -103,6 +167,9 @@ if (!empty($year_filter)) {
 if (!empty($search_query)) {
     $search = $conn->real_escape_string($search_query);
     $where_clauses[] = "(title LIKE '%$search%' OR description LIKE '%$search%' OR ownerName LIKE '%$search%' OR giver LIKE '%$search%' OR type LIKE '%$search%')";
+}
+if (!empty($teacher_filter)) {
+    $where_clauses[] = "ownerName = '" . $conn->real_escape_string($teacher_filter) . "'";
 }
 
 // ผู้เยี่ยมชมทั่วไปเห็นเฉพาะข้อมูลที่อนุมัติแล้ว ส่วนครู/แอดมินเห็นทั้งหมดหรือของตนเองตามความสิทธิ์
@@ -303,18 +370,39 @@ $latest_res = $conn->query("SELECT * FROM portfolios WHERE approved=1 ORDER BY c
         
         <!-- แถบแสดงข้อความแจ้งเตือน (Notifications) -->
         <?php if(isset($_GET['msg'])): ?>
-            <div class="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-2xl flex items-center gap-2 shadow-sm print-hidden">
+            <div class="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-2xl flex items-center gap-2 shadow-sm print-hidden text-left">
                 <span class="text-base">✅</span>
                 <span class="font-bold">
                     <?php 
                         if ($_GET['msg'] === 'settings_updated') {
-                            echo 'บันทึกการตั้งค่าโรงเรียนและเชื่อมต่อระบบสำเร็จเรียบร้อยแล้ว!';
+                            echo 'บันทึกการตั้งค่าระบบเรียบร้อยแล้ว!';
                         } elseif ($_GET['msg'] === 'approved') {
                             echo 'อนุมัติเผยแพร่ผลงานที่เลือกเรียบร้อยแล้ว!';
                         } elseif ($_GET['msg'] === 'deleted') {
                             echo 'ลบข้อมูลผลงานออกจากระบบเรียบร้อยแล้ว!';
+                        } elseif ($_GET['msg'] === 'user_added') {
+                            echo 'ลงทะเบียนผู้ใช้งาน/บัญชีคุณครูเรียบร้อยแล้ว!';
+                        } elseif ($_GET['msg'] === 'user_deleted') {
+                            echo 'ลบข้อมูลผู้ใช้งานออกจากระบบเรียบร้อยแล้ว!';
                         } else {
                             echo 'ทำรายการสำเร็จเรียบร้อยแล้ว!';
+                        }
+                    ?>
+                </span>
+            </div>
+        <?php endif; ?>
+
+        <?php if(isset($_GET['err'])): ?>
+            <div class="p-4 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-2xl flex items-center gap-2 shadow-sm print-hidden text-left">
+                <span class="text-base">⚠️</span>
+                <span class="font-bold">
+                    <?php 
+                        if ($_GET['err'] === 'username_exists') {
+                            echo 'ชื่อผู้ใช้งานนี้มีอยู่ในระบบแล้ว กรุณาใช้ชื่ออื่น!';
+                        } elseif ($_GET['err'] === 'self_delete') {
+                            echo 'คุณไม่สามารถลบบัญชีของตนเองที่กำลังใช้งานอยู่ได้!';
+                        } else {
+                            echo 'เกิดข้อผิดพลาดในการทำรายการ!';
                         }
                     ?>
                 </span>
@@ -543,6 +631,20 @@ $latest_res = $conn->query("SELECT * FROM portfolios WHERE approved=1 ORDER BY c
                                 <option value="school" <?php if($category_filter == 'school') echo 'selected'; ?>>🏫 ผลงานโรงเรียน</option>
                                 <option value="teacher" <?php if($category_filter == 'teacher') echo 'selected'; ?>>👩‍🏫 ผลงานคุณครู</option>
                                 <option value="student" <?php if($category_filter == 'student') echo 'selected'; ?>>🎓 ผลงานนักเรียน</option>
+                            </select>
+                        </div>
+                    <?php endif; ?>
+
+                    <?php if ($active_tab === 'list_teacher' || $active_tab === 'list'): ?>
+                        <div class="w-full md:w-52 text-left">
+                            <label class="text-xs font-bold text-gray-600 block mb-1.5">👩‍🏫 เลือกคุณครูผู้จัดทำ</label>
+                            <select name="teacher_name" class="w-full text-xs px-4 py-3 rounded-xl border border-gray-200 outline-none focus:border-blue-500 bg-white">
+                                <option value="">คุณครูทั้งหมด</option>
+                                <?php foreach($teachers_array as $teacher): ?>
+                                    <option value="<?php echo htmlspecialchars($teacher['name']); ?>" <?php if($teacher_filter === $teacher['name']) echo 'selected'; ?>>
+                                        <?php echo htmlspecialchars($teacher['name']); ?>
+                                    </option>
+                                <?php endforeach; ?>
                             </select>
                         </div>
                     <?php endif; ?>
@@ -1007,29 +1109,34 @@ $latest_res = $conn->query("SELECT * FROM portfolios WHERE approved=1 ORDER BY c
             </script>
 
         <!-- ==============================================
-             CASE 4: หน้าการตั้งค่าและคัดลอกรหัสเชื่อมต่อ (SETUP TAB)
+             CASE 4: หน้าการตั้งค่าและจัดการผู้ใช้ (SETUP TAB)
              ============================================== -->
-        <?php elseif ($active_tab === 'setup' && isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin'): ?>
+        <?php 
+        elseif ($active_tab === 'setup' && isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin'): 
+            $sub_tab = isset($_GET['subtab']) ? $_GET['subtab'] : 'general';
+        ?>
             <section class="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 text-left space-y-6">
                 <div class="border-b border-slate-100 pb-3">
-                    <h2 class="text-xl font-black text-slate-800">⚙️ จัดการระบบหลังบ้าน & การตั้งค่า Google Drive เชื่อมโยง</h2>
-                    <p class="text-xs text-slate-400">สำหรับผู้ดูแลระบบสูงสุด (Admin) เท่านั้นในการกำหนดคุณสมบัติการส่งไฟล์ตรงไปยังเซิร์ฟเวอร์คลาวด์</p>
+                    <h2 class="text-xl font-black text-slate-800">⚙️ แผงจัดการระบบประกันคุณภาพและการตั้งค่าระบบ</h2>
+                    <p class="text-xs text-slate-400">สำหรับผู้ดูแลระบบ (Admin) ในการจัดการบัญชีครู อัตลักษณ์โรงเรียน และสัญญาสิทธิ์ Google Drive</p>
                 </div>
 
-                <form method="POST" class="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs font-bold text-slate-700">
-                    <div class="space-y-4">
-                        <div>
-                            <label class="block mb-1">🏫 ชื่อสถาบัน / โรงเรียน</label>
-                            <input type="text" name="school_name" value="<?php echo htmlspecialchars($school_name); ?>" required class="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-slate-50/50 text-xs font-medium text-slate-800">
-                        </div>
-                        <div>
-                            <label class="block mb-1">🎨 ลิงก์ที่อยู่ไฟล์โลโก้โรงเรียน (School Logo URL)</label>
-                            <input type="url" name="school_logo" value="<?php echo htmlspecialchars($school_logo); ?>" placeholder="เช่น https://example.com/logo.png" class="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-slate-50/50 text-xs font-medium text-slate-800">
-                            <p class="text-[9px] text-slate-400 font-medium mt-1">💡 ใส่ลิงก์ URL ตราสัญลักษณ์โรงเรียนของคุณ เพื่อปรับแต่งแสดงผลแถบด้านบนสุด</p>
-                        </div>
-                    </div>
+                <!-- แถบเมนูย่อย Sub-Tabs -->
+                <div class="flex border-b border-slate-200 mb-6 print-hidden text-xs font-bold">
+                    <a href="index.php?tab=setup&subtab=general" class="py-2.5 px-4 transition-all border-b-2 <?php echo $sub_tab === 'general' ? 'border-blue-900 text-blue-950 font-black' : 'border-transparent text-slate-500 hover:text-slate-800'; ?>">
+                        📁 เชื่อมต่อ Google Drive
+                    </a>
+                    <a href="index.php?tab=setup&subtab=branding" class="py-2.5 px-4 transition-all border-b-2 <?php echo $sub_tab === 'branding' ? 'border-blue-900 text-blue-950 font-black' : 'border-transparent text-slate-500 hover:text-slate-800'; ?>">
+                        🏫 ตราสัญลักษณ์ & อัตลักษณ์โรงเรียน
+                    </a>
+                    <a href="index.php?tab=setup&subtab=users" class="py-2.5 px-4 transition-all border-b-2 <?php echo $sub_tab === 'users' ? 'border-blue-900 text-blue-950 font-black' : 'border-transparent text-slate-500 hover:text-slate-800'; ?>">
+                        👥 จัดการบัญชีรายชื่อคุณครู
+                    </a>
+                </div>
 
-                    <div class="space-y-4">
+                <!-- SUB TAB 1: General & Google Drive Connection -->
+                <?php if ($sub_tab === 'general'): ?>
+                    <form method="POST" class="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs font-bold text-slate-700">
                         <div>
                             <label class="block mb-1">📁 รหัสโฟลเดอร์เก็บไฟล์บน Google Drive (Folder ID)</label>
                             <input type="text" name="google_drive_folder_id" value="<?php echo htmlspecialchars($google_drive_folder_id); ?>" placeholder="ป้อน ID เช่น 1aBcD-eFgHiJkLm..." class="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-slate-50/50 text-xs font-medium text-slate-800">
@@ -1040,50 +1147,49 @@ $latest_res = $conn->query("SELECT * FROM portfolios WHERE approved=1 ORDER BY c
                             <input type="url" name="google_apps_script_url" value="<?php echo htmlspecialchars($google_apps_script_url); ?>" placeholder="เช่น https://script.google.com/macros/s/.../exec" class="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-slate-50/50 text-xs font-medium text-slate-800">
                             <p class="text-[9px] text-slate-400 font-medium mt-1">💡 ลิงก์เว็บแอปที่ได้จากการกดปรับใช้ (Deploy) ตัวสคริปต์ Google Apps Script</p>
                         </div>
-                    </div>
 
-                    <div class="md:col-span-2 pt-4 border-t border-slate-100 flex flex-col md:flex-row gap-4 items-center justify-between">
-                        <div class="text-[10px] text-slate-400 font-medium">
-                            * ตรวจสอบความถูกต้องของลิงก์ระบบสคริปต์ทุกครั้งก่อนบันทึกค่าเพื่อให้การอัปโหลดทำงานได้ไร้รอยต่อ
-                        </div>
-                        <button type="submit" name="save_settings" class="px-6 py-3 bg-blue-900 hover:bg-blue-800 text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer transition-all">
-                            💾 บันทึกสัญญาสิทธิ์และการตั้งค่า
-                        </button>
-                    </div>
-                </form>
-
-                <!-- คู่มือการคัดลอกโค้ด Google Apps Script ไปใช้งานจริง -->
-                <div class="pt-6 border-t border-slate-100 space-y-4">
-                    <div>
-                        <h3 class="font-black text-sm text-slate-800 flex items-center gap-2">
-                            <span>📋</span>
-                            <span>โค้ดและวิธีติดตั้ง Google Apps Script สำหรับผู้ดูแลระบบ</span>
-                        </h3>
-                        <p class="text-xs text-slate-400">ทำตามขั้นตอนต่อไปนี้เพื่อเชื่อมต่อระบบจัดเก็บเอกสารและไฟล์ภาพเข้ากับ Google Drive ของโรงเรียนแบบถาวร</p>
-                    </div>
-
-                    <div class="text-xs text-slate-600 bg-blue-50/30 border border-blue-100/50 p-5 rounded-2xl space-y-2.5">
-                        <p class="font-bold text-blue-900 text-sm">💡 ขั้นตอนการเชื่อมต่อและคัดลอกโค้ดใช้งาน:</p>
-                        <ol class="list-decimal pl-5 space-y-1.5 leading-relaxed">
-                            <li>ล็อกอินเข้าไปที่บัญชี Google Drive ของโรงเรียน และสร้างโฟลเดอร์สำหรับเก็บผลงาน ครู/นักเรียน พร้อมคัดลอก Folder ID มาใส่ด้านบน</li>
-                            <li>เข้าเว็บไซต์ <a href="https://script.google.com/" target="_blank" class="text-blue-600 underline font-extrabold">Google Apps Script Dashboard</a> แล้วกดปุ่ม <strong>"โครงการใหม่" (New Project)</strong></li>
-                            <li>ล้างข้อมูลโค้ดชุดเดิมออกให้หมด แล้วคัดลอกโค้ดในกล่องด้านล่างนี้ไปวางแทนที่ทั้งหมด</li>
-                            <li>กดเซฟโครงการ แล้วคลิกปุ่ม <strong>"การปรับใช้" (Deploy) > "การปรับใช้ใหม่" (New Deployment)</strong> ทางด้านบน</li>
-                            <li>คลิกรูปฟันเฟือง เลือกประเภทเป็น <strong>"เว็บแอป" (Web App)</strong></li>
-                            <li>ตั้งค่า: กำหนดช่อง "ผู้ดูแลและควบคุมสิทธิ์เว็บแอป" เป็นชื่อคุณเอง และกำหนดช่อง "ผู้มีสิทธิ์เข้าใช้งาน" ให้เป็น <strong>"ทุกคน" (Anyone)</strong></li>
-                            <li>กด "ปรับใช้" (Deploy) และอนุมัติสิทธิ์ความปลอดภัย (Authorize) จากนั้นคัดลอกลิงก์ <strong>"URL เว็บแอป" (Web App URL)</strong> มาป้อนในฟอร์มการตั้งค่าด้านบน เป็นอันเสร็จสิ้น!</li>
-                        </ol>
-                    </div>
-
-                    <div class="space-y-2">
-                        <div class="flex justify-between items-center">
-                            <span class="text-xs font-extrabold text-slate-600">📦 รหัสคำสั่งโค้ด Google Apps Script (GS)</span>
-                            <button onclick="copyGasScriptCode()" class="px-3 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-900 text-[10px] font-extrabold rounded-lg cursor-pointer transition-all">
-                                📋 คัดลอกโค้ดทั้งหมด
+                        <div class="md:col-span-2 pt-4 border-t border-slate-100 flex flex-col md:flex-row gap-4 items-center justify-between">
+                            <div class="text-[10px] text-slate-400 font-medium">
+                                * โปรดตรวจสอบสัญญาสิทธิ์โฟลเดอร์ในไดรฟ์ของท่านให้แน่ใจว่าได้เปิดเป็นสาธารณะ (คนมีลิงก์มีสิทธิ์อ่าน) ก่อนเริ่มทำการส่งไฟล์
+                            </div>
+                            <button type="submit" name="save_general_settings" class="px-6 py-3 bg-blue-900 hover:bg-blue-800 text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer transition-all">
+                                💾 บันทึกระบบเชื่อมต่อคลาวด์
                             </button>
                         </div>
-                        <div class="overflow-x-auto bg-slate-900 text-slate-200 p-5 rounded-2xl font-mono text-[11px] leading-relaxed relative max-h-[350px]">
-                            <pre id="gasCodeText" class="whitespace-pre text-left">function doPost(e) {
+                    </form>
+
+                    <!-- คู่มือการคัดลอกโค้ด Google Apps Script ไปใช้งานจริง -->
+                    <div class="pt-6 border-t border-slate-100 space-y-4">
+                        <div>
+                            <h3 class="font-black text-sm text-slate-800 flex items-center gap-2">
+                                <span>📋</span>
+                                <span>โค้ดและวิธีติดตั้ง Google Apps Script สำหรับผู้ดูแลระบบ</span>
+                            </h3>
+                            <p class="text-xs text-slate-400">ทำตามขั้นตอนต่อไปนี้เพื่อเชื่อมต่อระบบจัดเก็บเอกสารและไฟล์ภาพเข้ากับ Google Drive ของโรงเรียนแบบถาวร</p>
+                        </div>
+
+                        <div class="text-xs text-slate-600 bg-blue-50/30 border border-blue-100/50 p-5 rounded-2xl space-y-2.5 font-sans">
+                            <p class="font-bold text-blue-900 text-sm">💡 ขั้นตอนการเชื่อมต่อและคัดลอกโค้ดใช้งาน:</p>
+                            <ol class="list-decimal pl-5 space-y-1.5 leading-relaxed">
+                                <li>ล็อกอินเข้าไปที่บัญชี Google Drive ของโรงเรียน และสร้างโฟลเดอร์สำหรับเก็บผลงาน ครู/นักเรียน พร้อมคัดลอก Folder ID มาใส่ด้านบน</li>
+                                <li>เข้าเว็บไซต์ <a href="https://script.google.com/" target="_blank" class="text-blue-600 underline font-extrabold">Google Apps Script Dashboard</a> แล้วกดปุ่ม <strong>"โครงการใหม่" (New Project)</strong></li>
+                                <li>ล้างข้อมูลโค้ดชุดเดิมออกให้หมด แล้วคัดลอกโค้ดในกล่องด้านล่างนี้ไปวางแทนที่ทั้งหมด</li>
+                                <li>กดเซฟโครงการ แล้วคลิกปุ่ม <strong>"การปรับใช้" (Deploy) > "การปรับใช้ใหม่" (New Deployment)</strong> ทางด้านบน</li>
+                                <li>คลิกรูปฟันเฟือง เลือกประเภทเป็น <strong>"เว็บแอป" (Web App)</strong></li>
+                                <li>ตั้งค่า: กำหนดช่อง "ผู้ดูแลและควบคุมสิทธิ์เว็บแอป" เป็นชื่อคุณเอง และกำหนดช่อง "ผู้มีสิทธิ์เข้าใช้งาน" ให้เป็น <strong>"ทุกคน" (Anyone)</strong></li>
+                                <li>กด "ปรับใช้" (Deploy) และอนุมัติสิทธิ์ความปลอดภัย (Authorize) จากนั้นคัดลอกลิงก์ <strong>"URL เว็บแอป" (Web App URL)</strong> มาป้อนในฟอร์มการตั้งค่าด้านบน เป็นอันเสร็จสิ้น!</li>
+                            </ol>
+                        </div>
+
+                        <div class="space-y-2">
+                            <div class="flex justify-between items-center">
+                                <span class="text-xs font-extrabold text-slate-600">📦 รหัสคำสั่งโค้ด Google Apps Script (GS)</span>
+                                <button onclick="copyGasScriptCode()" class="px-3 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-900 text-[10px] font-extrabold rounded-lg cursor-pointer transition-all">
+                                    📋 คัดลอกโค้ดทั้งหมด
+                                </button>
+                            </div>
+                            <div class="overflow-x-auto bg-slate-900 text-slate-200 p-5 rounded-2xl font-mono text-[11px] leading-relaxed relative max-h-[350px]">
+                                <pre id="gasCodeText" class="whitespace-pre text-left">function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents);
     var base64Data = data.file;
@@ -1119,21 +1225,189 @@ $latest_res = $conn->query("SELECT * FROM portfolios WHERE approved=1 ORDER BY c
     })).setMimeType(ContentService.MimeType.JSON);
   }
 }</pre>
+                            </div>
                         </div>
                     </div>
-                </div>
-            </section>
 
-            <script>
-                function copyGasScriptCode() {
-                    const code = document.getElementById('gasCodeText').innerText;
-                    navigator.clipboard.writeText(code).then(() => {
-                        alert('คัดลอกรหัสคำสั่ง Google Apps Script เรียบร้อยแล้ว! นำไปวางใน Google Script ได้ทันที');
-                    }).catch(err => {
-                        alert('ไม่สามารถคัดลอกได้อัตโนมัติ กรุณาลากคลุมโค้ดแล้วกดปุ่มคัดลอก');
-                    });
-                }
-            </script>
+                    <script>
+                        function copyGasScriptCode() {
+                            const code = document.getElementById('gasCodeText').innerText;
+                            navigator.clipboard.writeText(code).then(() => {
+                                alert('คัดลอกรหัสคำสั่ง Google Apps Script เรียบร้อยแล้ว! นำไปวางใน Google Script ได้ทันที');
+                            }).catch(err => {
+                                alert('ไม่สามารถคัดลอกได้อัตโนมัติ กรุณาลากคลุมโค้ดแล้วกดปุ่มคัดลอก');
+                            });
+                        }
+                    </script>
+
+                <!-- SUB TAB 2: Branding & Direct File Upload -->
+                <?php elseif ($sub_tab === 'branding'): ?>
+                    <form method="POST" enctype="multipart/form-data" class="space-y-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 text-xs font-bold text-slate-700">
+                            <div class="space-y-5">
+                                <div>
+                                    <label class="block mb-1">🏫 ชื่อสถาบัน / โรงเรียน</label>
+                                    <input type="text" name="school_name" value="<?php echo htmlspecialchars($school_name); ?>" required class="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-slate-50/50 text-xs font-medium text-slate-800">
+                                </div>
+                                <div>
+                                    <label class="block mb-1">🔗 ที่อยู่ไฟล์ลิงก์โลโก้โรงเรียน (School Logo URL)</label>
+                                    <input type="text" name="school_logo" id="school_logo_url_field" value="<?php echo htmlspecialchars($school_logo); ?>" placeholder="เช่น https://example.com/logo.png" class="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-slate-50/50 text-xs font-medium text-slate-800">
+                                    <p class="text-[9px] text-slate-400 font-medium mt-1">💡 หากทำการอัปโหลดไฟล์ภาพโดยตรง ระบบจะแปลงไฟล์และอัปเดตข้อมูลลิงก์ที่อยู่ด้านขวานี้โดยอัตโนมัติครับ</p>
+                                </div>
+                            </div>
+
+                            <div class="space-y-3">
+                                <label class="block mb-1">📤 อัปโหลดตราสัญลักษณ์และโลโก้โรงเรียนใหม่ (เก็บในระบบงานของเราโดยตรง)</label>
+                                <div class="border-2 border-dashed border-slate-200 hover:border-blue-500 rounded-3xl p-6 text-center transition-all cursor-pointer bg-slate-50/40 relative flex flex-col items-center justify-center min-h-[160px]" onclick="document.getElementById('logo_file_selector').click()">
+                                    <input type="file" id="logo_file_selector" name="school_logo_file" accept="image/*" class="hidden" onchange="previewBrandingLogo(this)">
+                                    
+                                    <div id="branding-logo-preview-box" class="mb-2 <?php echo empty($school_logo) ? 'hidden' : ''; ?>">
+                                        <img id="branding-logo-preview-image" src="<?php echo htmlspecialchars($school_logo); ?>" alt="School Logo" class="max-h-24 object-contain mx-auto rounded-lg shadow-sm border bg-white p-2">
+                                        <p class="text-[9px] text-slate-400 font-medium mt-1.5">ตัวอย่างการแสดงผลโลโก้โรงเรียนของท่าน</p>
+                                    </div>
+
+                                    <div id="branding-logo-placeholder" class="<?php echo !empty($school_logo) ? 'hidden' : ''; ?> space-y-1">
+                                        <span class="text-3xl block">🎨</span>
+                                        <p class="text-[11px] font-extrabold text-slate-700">คลิกที่นี่เพื่อเลือกอัปโหลดไฟล์รูปภาพโลโก้</p>
+                                        <p class="text-[9px] text-slate-400 font-medium">รองรับนามสกุลไฟล์ PNG, JPEG, WEBP และ GIF</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="pt-5 border-t border-slate-100 flex flex-col md:flex-row gap-4 items-center justify-between">
+                            <div class="text-[10px] text-slate-400 font-medium">
+                                * ไฟล์ตราสัญลักษณ์โรงเรียนจะถูกเข้ารหัสเพื่อเก็บบันทึกลงในระบบคลังโดยสมบูรณ์ ไม่เสี่ยงต่อการถูกลบจากภายนอก
+                            </div>
+                            <button type="submit" name="save_branding_settings" class="px-6 py-3 bg-blue-900 hover:bg-blue-800 text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer transition-all">
+                                💾 บันทึกสัญญลักษณ์อัตลักษณ์และโลโก้
+                            </button>
+                        </div>
+                    </form>
+
+                    <script>
+                        function previewBrandingLogo(input) {
+                            if (input.files && input.files[0]) {
+                                const reader = new FileReader();
+                                reader.onload = function(e) {
+                                    document.getElementById('branding-logo-preview-image').src = e.target.result;
+                                    document.getElementById('branding-logo-preview-box').classList.remove('hidden');
+                                    document.getElementById('branding-logo-placeholder').classList.add('hidden');
+                                    document.getElementById('school_logo_url_field').value = e.target.result;
+                                };
+                                reader.readAsDataURL(input.files[0]);
+                            }
+                        }
+                    </script>
+
+                <!-- SUB TAB 3: User/Teacher Accounts Management CRUD -->
+                <?php elseif ($sub_tab === 'users'): ?>
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        
+                        <!-- ฝั่งซ้าย: ฟอร์มลงทะเบียนเพิ่มผู้ใช้รายบุคคล -->
+                        <div class="bg-slate-50 p-6 rounded-2xl border border-slate-200 text-left space-y-4">
+                            <div>
+                                <h3 class="font-extrabold text-xs text-blue-900">👥 ลงทะเบียนผู้ใช้งานระบบใหม่ (ครู / แอดมิน)</h3>
+                                <p class="text-[10px] text-slate-400 font-medium">บัญชีที่เพิ่มจะสามารถใช้รหัสนี้เข้าระบบส่งผลงานและจัดทำรายงานได้ทันที</p>
+                            </div>
+                            
+                            <form method="POST" class="space-y-3.5 text-xs">
+                                <div>
+                                    <label class="block mb-1 font-bold text-slate-700">👤 ชื่อ-นามสกุลจริง</label>
+                                    <input type="text" name="new_name" required placeholder="เช่น คุณครูเพียรพรรณ ใจดี" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-white text-xs font-medium text-slate-800">
+                                </div>
+                                <div>
+                                    <label class="block mb-1 font-bold text-slate-700">🔑 ชื่อผู้ใช้งานสำหรับเข้าสู่ระบบ (Username)</label>
+                                    <input type="text" name="new_username" required placeholder="ใช้ตัวอักษรภาษาอังกฤษและตัวเลขเท่านั้น" pattern="[a-zA-Z0-9_]+" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-white text-xs font-medium text-slate-800">
+                                </div>
+                                <div>
+                                    <label class="block mb-1 font-bold text-slate-700">🔒 รหัสผ่านเข้าใช้งาน (Password)</label>
+                                    <input type="text" name="new_password" required placeholder="รหัสผ่านตามใจชอบ" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-white text-xs font-medium text-slate-800">
+                                </div>
+                                <div>
+                                    <label class="block mb-1 font-bold text-slate-700">📧 อีเมลติดต่อคุณครู (Email)</label>
+                                    <input type="email" name="new_email" placeholder="เช่น teacher@school.ac.th" class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-white text-xs font-medium text-slate-800">
+                                </div>
+                                <div>
+                                    <label class="block mb-1 font-bold text-slate-700">🎖️ สิทธิ์และระดับการใช้ประโยชน์ (Role)</label>
+                                    <select name="new_role" required class="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-white text-xs text-slate-800">
+                                        <option value="teacher">คุณครูผู้สอน (Teacher - จัดทำคลังตนเอง)</option>
+                                        <option value="admin">ผู้ดูแลระบบ (Admin - ตรวจสอบและแก้ไขทุกส่วน)</option>
+                                    </select>
+                                </div>
+                                <div class="pt-2">
+                                    <button type="submit" name="add_user" class="w-full py-2.5 bg-blue-900 hover:bg-blue-800 text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer transition-all">
+                                        ➕ ลงทะเบียนและบันทึกผู้ใช้
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <!-- ฝั่งขวา: รายชื่อคุณครูผู้ใช้ระบบที่มีอยู่ทั้งหมดใน MySQL -->
+                        <div class="lg:col-span-2 space-y-4 text-left">
+                            <div>
+                                <h3 class="font-extrabold text-sm text-slate-800">📋 ทะเบียนบัญชีคุณครูและบุคลากรในโรงเรียนขณะนี้</h3>
+                                <p class="text-[10px] text-slate-400">แสดงรายชื่อคุณครูผู้สอนทั้งหมดที่มีสิทธิ์นำผลงานเข้าสู่คลังประกันคุณภาพการศึกษา</p>
+                            </div>
+
+                            <div class="overflow-x-auto border border-slate-200 rounded-2xl shadow-sm bg-white">
+                                <table class="w-full text-left border-collapse text-[11px]">
+                                    <thead>
+                                        <tr class="bg-slate-50 text-slate-700 font-extrabold border-b">
+                                            <th class="p-3">ชื่อ-นามสกุลคุณครู</th>
+                                            <th class="p-3">Username</th>
+                                            <th class="p-3">รหัสผ่าน</th>
+                                            <th class="p-3">อีเมลติดต่อ</th>
+                                            <th class="p-3">ระดับสิทธิ์</th>
+                                            <th class="p-3 text-center">จัดการสิทธิ์</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php 
+                                            $users_res = $conn->query("SELECT * FROM users ORDER BY role ASC, name ASC");
+                                            if ($users_res && $users_res->num_rows > 0):
+                                                while($u = $users_res->fetch_assoc()):
+                                        ?>
+                                            <tr class="border-b hover:bg-slate-50/40">
+                                                <td class="p-3 font-bold text-slate-800 flex items-center gap-2">
+                                                    <img src="<?php echo htmlspecialchars($u['avatarUrl'] ?: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150'); ?>" class="w-6 h-6 rounded-full object-cover border border-slate-200">
+                                                    <span><?php echo htmlspecialchars($u['name']); ?></span>
+                                                </td>
+                                                <td class="p-3 text-slate-600 font-semibold"><?php echo htmlspecialchars($u['username']); ?></td>
+                                                <td class="p-3 text-slate-400 font-mono"><?php echo htmlspecialchars($u['password']); ?></td>
+                                                <td class="p-3 text-slate-500"><?php echo htmlspecialchars($u['email'] ?: '-'); ?></td>
+                                                <td class="p-3">
+                                                    <span class="inline-flex px-2 py-0.5 rounded text-[9px] font-bold <?php echo $u['role'] === 'admin' ? 'bg-rose-50 text-rose-700 border border-rose-100' : 'bg-blue-50 text-blue-700 border border-blue-100'; ?>">
+                                                        <?php echo $u['role'] === 'admin' ? 'Admin' : 'Teacher'; ?>
+                                                    </span>
+                                                </td>
+                                                <td class="p-3 text-center font-bold">
+                                                    <?php if ($u['id'] !== $_SESSION['user_id']): ?>
+                                                        <a href="index.php?tab=setup&subtab=users&delete_user_id=<?php echo $u['id']; ?>" onclick="return confirm('คุณต้องการลบสิทธิ์บัญชีคุณครูและยกเลิกการเข้าใช้งานระบบของ <?php echo htmlspecialchars($u['name']); ?> หรือไม่?')" class="text-rose-600 hover:text-rose-900 hover:underline">
+                                                            ลบบัญชี
+                                                        </a>
+                                                    <?php else: ?>
+                                                        <span class="text-slate-400 font-medium">บัญชีปัจจุบันของคุณ</span>
+                                                    <?php endif; ?>
+                                                </td>
+                                            </tr>
+                                        <?php 
+                                                endwhile;
+                                            else:
+                                        ?>
+                                            <tr>
+                                                <td colspan="6" class="p-6 text-center text-slate-400">ไม่พบข้อมูลรายชื่อใดๆ ในระบบประกันประกันคุณภาพขณะนี้</td>
+                                            </tr>
+                                        <?php endif; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                    </div>
+                <?php endif; ?>
+
+            </section>
         <?php endif; ?>
 
     </main>

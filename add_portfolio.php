@@ -6,6 +6,15 @@ require_once 'config.php';
 $google_drive_folder_id = get_setting($conn, 'google_drive_folder_id', '');
 $google_apps_script_url = get_setting($conn, 'google_apps_script_url', '');
 
+// ดึงรายชื่อคุณครูทั้งหมดเพื่อใช้ในตัวเลือกสำหรับแอดมิน
+$teachers_res = $conn->query("SELECT id, name FROM users WHERE role = 'teacher' ORDER BY name ASC");
+$teachers_list = [];
+if ($teachers_res) {
+    while ($t_row = $teachers_res->fetch_assoc()) {
+        $teachers_list[] = $t_row;
+    }
+}
+
 // ป้องกันกรณีที่ผู้ใช้งานยังไม่ได้เข้าสู่ระบบ
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
@@ -151,7 +160,17 @@ if (isset($_POST['submit'])) {
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-gray-100 pt-4">
                 <div>
                     <label class="text-xs font-bold text-gray-600 block mb-1">👤 ชื่อผู้รับผิดชอบ / เจ้าของผลงาน</label>
-                    <input type="text" name="ownerName" required value="<?php echo htmlspecialchars($_SESSION['user_name']); ?>" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm outline-none bg-slate-100" <?php if($_SESSION['user_role'] !== 'admin') echo 'readonly'; ?>>
+                    <?php if ($_SESSION['user_role'] === 'admin'): ?>
+                        <select name="ownerName" required class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm outline-none bg-slate-50/50">
+                            <option value="">-- เลือกคุณครูผู้รับผลงาน --</option>
+                            <?php foreach ($teachers_list as $teacher): ?>
+                                <option value="<?php echo htmlspecialchars($teacher['name']); ?>"><?php echo htmlspecialchars($teacher['name']); ?></option>
+                            <?php endforeach; ?>
+                            <option value="โรงเรียนบ้านหนองหว้า">โรงเรียนบ้านหนองหว้า (ผลงานส่วนกลางโรงเรียน)</option>
+                        </select>
+                    <?php else: ?>
+                        <input type="text" name="ownerName" required value="<?php echo htmlspecialchars($_SESSION['user_name']); ?>" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm outline-none bg-slate-100" readonly>
+                    <?php endif; ?>
                 </div>
                 <div>
                     <label class="text-xs font-bold text-gray-600 block mb-1">💼 ตำแหน่งผู้รับผลงาน</label>
