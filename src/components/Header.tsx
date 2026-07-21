@@ -23,22 +23,20 @@ export default function Header({
 
   const menuItems = currentUser
     ? [
-        { id: 'dashboard', label: '📊 แดชบอร์ดหลัก' },
-        { id: 'list_school', label: '🏫 คลังสื่อโรงเรียน' },
-        { id: 'list_teacher', label: '👩‍🏫 คลังสื่อคุณครู' },
-        { id: 'list_student', label: '🎓 คลังสื่อนักเรียน' },
+        { id: 'dashboard', label: '🏠 หน้าหลัก' },
+        { id: 'list_school', label: '🏫 ผลงานโรงเรียน' },
+        { id: 'list_teacher', label: '👩‍🏫 ผลงานคุณครู' },
+        { id: 'list_student', label: '🎓 ผลงานนักเรียน' },
         { id: 'list', label: '📁 คลังหลักฐานทั้งหมด' },
         { id: 'form', label: '➕ บันทึกผลงานใหม่' },
-        { id: 'reports', label: '📈 รายงาน SAR' },
         ...(currentUser.role === 'admin' ? [{ id: 'setup', label: '⚙️ ตั้งค่า & โค้ด Apps Script' }] : [])
       ]
     : [
-        { id: 'dashboard', label: '📊 แดชบอร์ดหลัก' },
-        { id: 'list_school', label: '🏫 คลังสื่อโรงเรียน' },
-        { id: 'list_teacher', label: '👩‍🏫 คลังสื่อคุณครู' },
-        { id: 'list_student', label: '🎓 คลังสื่อนักเรียน' },
+        { id: 'dashboard', label: '🏠 หน้าหลัก' },
+        { id: 'list_school', label: '🏫 ผลงานโรงเรียน' },
+        { id: 'list_teacher', label: '👩‍🏫 ผลงานคุณครู' },
+        { id: 'list_student', label: '🎓 ผลงานนักเรียน' },
         { id: 'list', label: '📁 คลังหลักฐานทั้งหมด' },
-        { id: 'reports', label: '📈 รายงาน SAR' },
         { id: 'login', label: '🔒 เข้าสู่ระบบ' }
       ];
 

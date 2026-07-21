@@ -2,15 +2,27 @@
 // index.php - หน้าหลักของระบบประกันคุณภาพและคลังสะสมผลงานดิจิทัล โรงเรียนบ้านหนองหว้า
 require_once 'config.php';
 
+// ดึงแท็บปัจจุบัน (ค่าเริ่มต้นคือ หน้าหลัก / แดชบอร์ด)
+$active_tab = isset($_GET['tab']) ? $_GET['tab'] : 'dashboard';
+if ($active_tab === 'reports') {
+    $active_tab = 'dashboard';
+}
+
 // ดึงการตั้งค่าโรงเรียนและ Google Drive
 $school_name = get_setting($conn, 'school_name', 'โรงเรียนบ้านหนองหว้า');
 $school_logo = get_setting($conn, 'school_logo', '');
 $google_drive_folder_id = get_setting($conn, 'google_drive_folder_id', '');
 $google_apps_script_url = get_setting($conn, 'google_apps_script_url', '');
 
-// ดึงปีการศึกษาเพื่อทำตัวกรอง
+// ดึงปีการศึกษาเพื่อทำตัวกรอง (บันทึกไว้ในอาร์เรย์เพื่อป้องกัน pointer หมดอายุจากการคิวรีหลายครั้ง)
 $years_query = "SELECT DISTINCT academicYear FROM portfolios ORDER BY academicYear DESC";
 $years_result = $conn->query($years_query);
+$academic_years = [];
+if ($years_result) {
+    while ($y_row = $years_result->fetch_assoc()) {
+        $academic_years[] = $y_row['academicYear'];
+    }
+}
 
 if (!$years_result) {
     die("
@@ -28,77 +40,26 @@ if (!$years_result) {
         <div style='font-size: 13px; color: #475569; line-height: 1.6;'>
             💡 <strong>คำแนะนำในการแก้ไข:</strong>
             <ul style='margin-top: 5px; padding-left: 20px;'>
-                <li>ตรวจสอบว่าคุณได้ <strong>นำเข้าตารางข้อมูลจากไฟล์ <code>database.sql</code></strong> เข้าไปที่ระบบฐานข้อมูล <code>" . htmlspecialchars(DB_NAME) . "</code> ใน phpMyAdmin เรียบร้อยแล้วหรือยัง</li>
-                <li>ตรวจสอบการกำหนดสิทธิ์ของบัญชีผู้ใช้งาน <code>" . htmlspecialchars(DB_USER) . "</code> ว่ามีสิทธิ์คิวรี/จัดการตารางหรือไม่</li>
-                <li>หากยังเชื่อมต่อไม่ได้ กรุณาปรับเปลี่ยนข้อมูล Host, User, Pass และ Name ในไฟล์ <code>config.php</code> ให้ตรงกับที่เซิร์ฟเวอร์จริงกำหนด</li>
+                <li>ตรวจสอบว่าคุณได้ <strong>นำเข้าตารางข้อมูลจากไฟล์ <code>database.sql</code></strong> เรียบร้อยแล้วหรือยัง</li>
+                <li>ตรวจสอบการกำหนดสิทธิ์ของบัญชีผู้ใช้งาน <code>" . htmlspecialchars(DB_USER) . "</code> ว่าถูกต้อง</li>
             </ul>
-        </div>
-        <div style='margin-top: 25px; text-align: center;'>
-            <a href='index.php' style='display: inline-block; padding: 10px 20px; background-color: #1e3a8a; color: white; border-radius: 10px; text-decoration: none; font-size: 13px; font-weight: bold;'>🔄 รีเฟรชหน้าเว็บ</a>
         </div>
     </div>
     ");
 }
 
-// เงื่อนไขการกรอง
-$category_filter = isset($_GET['category']) ? $_GET['category'] : '';
-$year_filter = isset($_GET['year']) ? $_GET['year'] : '';
-$search_query = isset($_GET['search']) ? $_GET['search'] : '';
-
-$where_clauses = [];
-if (!empty($category_filter)) {
-    $where_clauses[] = "category = '" . $conn->real_escape_string($category_filter) . "'";
-}
-if (!empty($year_filter)) {
-    $where_clauses[] = "academicYear = '" . $conn->real_escape_string($year_filter) . "'";
-}
-if (!empty($search_query)) {
-    $search = $conn->real_escape_string($search_query);
-    $where_clauses[] = "(title LIKE '%$search%' OR description LIKE '%$search%' OR ownerName LIKE '%$search%' OR giver LIKE '%$search%' OR type LIKE '%$search%')";
-}
-
-// แขกทั่วไปจะเห็นเฉพาะข้อมูลที่ได้รับอนุมัติแล้ว (approved = 1) ส่วนแอดมินหรือครูที่ล็อกอินจะเห็นข้อมูลทั้งหมด
-if (!isset($_SESSION['user_role'])) {
-    $where_clauses[] = "approved = 1";
-} elseif ($_SESSION['user_role'] !== 'admin') {
-    // ครูเห็นข้อมูลของทุกคนที่อนุมัติแล้ว + ข้อมูลของตัวเองที่รออนุมัติด้วย
-    $user_name_esc = $conn->real_escape_string($_SESSION['user_name']);
-    $where_clauses[] = "(approved = 1 OR ownerName = '$user_name_esc')";
-}
-
-$where_sql = "";
-if (count($where_clauses) > 0) {
-    $where_sql = "WHERE " . implode(" AND ", $where_clauses);
-}
-
-$query = "SELECT * FROM portfolios $where_sql ORDER BY academicYear DESC, createdAt DESC";
-$result = $conn->query($query);
-
-// ดึงสถิติรวมสำหรับแผงควบคุมหลัก (Dashboard Panels) โดยคำนึงถึงความปลอดภัยของผลลัพธ์คิวรี
-$res_school = $conn->query("SELECT COUNT(*) as total FROM portfolios WHERE category='school' AND approved=1");
-$stat_school = ($res_school) ? $res_school->fetch_assoc()['total'] : 0;
-
-$res_teacher = $conn->query("SELECT COUNT(*) as total FROM portfolios WHERE category='teacher' AND approved=1");
-$stat_teacher = ($res_teacher) ? $res_teacher->fetch_assoc()['total'] : 0;
-
-$res_student = $conn->query("SELECT COUNT(*) as total FROM portfolios WHERE category='student' AND approved=1");
-$stat_student = ($res_student) ? $res_student->fetch_assoc()['total'] : 0;
-
-$res_pending = $conn->query("SELECT COUNT(*) as total FROM portfolios WHERE approved=0");
-$stat_pending = ($res_pending) ? $res_pending->fetch_assoc()['total'] : 0;
-
-// จัดการบันทึกการตั้งค่า และอนุมัติผลงาน (เฉพาะ Admin)
+// การอนุมัติและการลบผลงาน (เฉพาะ Admin)
 if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') {
     if (isset($_GET['approve_id'])) {
         $approve_id = $conn->real_escape_string($_GET['approve_id']);
         $conn->query("UPDATE portfolios SET approved = 1 WHERE id = '$approve_id'");
-        header("Location: index.php?msg=approved");
+        header("Location: index.php?tab=" . urlencode($active_tab) . "&msg=approved");
         exit;
     }
     if (isset($_GET['delete_id'])) {
         $delete_id = $conn->real_escape_string($_GET['delete_id']);
         $conn->query("DELETE FROM portfolios WHERE id = '$delete_id'");
-        header("Location: index.php?msg=deleted");
+        header("Location: index.php?tab=" . urlencode($active_tab) . "&msg=deleted");
         exit;
     }
     if (isset($_POST['save_settings'])) {
@@ -112,81 +73,246 @@ if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') {
         set_setting($conn, 'google_drive_folder_id', $google_drive_folder_id);
         set_setting($conn, 'google_apps_script_url', $google_apps_script_url);
 
-        header("Location: index.php?msg=settings_updated");
+        header("Location: index.php?tab=setup&msg=settings_updated");
         exit;
     }
 }
+
+// กำหนดเงื่อนไขฟิลเตอร์ตามแท็บที่ถูกเลือก
+if ($active_tab === 'list_school') {
+    $category_filter = 'school';
+} elseif ($active_tab === 'list_teacher') {
+    $category_filter = 'teacher';
+} elseif ($active_tab === 'list_student') {
+    $category_filter = 'student';
+} else {
+    $category_filter = isset($_GET['category']) ? $_GET['category'] : '';
+}
+
+$year_filter = isset($_GET['year']) ? $_GET['year'] : '';
+$search_query = isset($_GET['search']) ? $_GET['search'] : '';
+
+// สร้างเงื่อนไขในการดึงข้อมูลหลัก
+$where_clauses = [];
+if (!empty($category_filter)) {
+    $where_clauses[] = "category = '" . $conn->real_escape_string($category_filter) . "'";
+}
+if (!empty($year_filter)) {
+    $where_clauses[] = "academicYear = '" . $conn->real_escape_string($year_filter) . "'";
+}
+if (!empty($search_query)) {
+    $search = $conn->real_escape_string($search_query);
+    $where_clauses[] = "(title LIKE '%$search%' OR description LIKE '%$search%' OR ownerName LIKE '%$search%' OR giver LIKE '%$search%' OR type LIKE '%$search%')";
+}
+
+// ผู้เยี่ยมชมทั่วไปเห็นเฉพาะข้อมูลที่อนุมัติแล้ว ส่วนครู/แอดมินเห็นทั้งหมดหรือของตนเองตามความสิทธิ์
+if (!isset($_SESSION['user_role'])) {
+    $where_clauses[] = "approved = 1";
+} elseif ($_SESSION['user_role'] !== 'admin') {
+    $user_name_esc = $conn->real_escape_string($_SESSION['user_name']);
+    $where_clauses[] = "(approved = 1 OR ownerName = '$user_name_esc')";
+}
+
+$where_sql = "";
+if (count($where_clauses) > 0) {
+    $where_sql = "WHERE " . implode(" AND ", $where_clauses);
+}
+
+// 1. คิวรีหลักสำหรับหน้าแสดงผลงาน
+$query = "SELECT * FROM portfolios $where_sql ORDER BY academicYear DESC, createdAt DESC";
+$result = $conn->query($query);
+
+// 2. ดึงสถิติตัวเลขแสดงในแดชบอร์ด
+$res_school = $conn->query("SELECT COUNT(*) as total FROM portfolios WHERE category='school' AND approved=1");
+$stat_school = ($res_school) ? $res_school->fetch_assoc()['total'] : 0;
+
+$res_teacher = $conn->query("SELECT COUNT(*) as total FROM portfolios WHERE category='teacher' AND approved=1");
+$stat_teacher = ($res_teacher) ? $res_teacher->fetch_assoc()['total'] : 0;
+
+$res_student = $conn->query("SELECT COUNT(*) as total FROM portfolios WHERE category='student' AND approved=1");
+$stat_student = ($res_student) ? $res_student->fetch_assoc()['total'] : 0;
+
+$res_pending = $conn->query("SELECT COUNT(*) as total FROM portfolios WHERE approved=0");
+$stat_pending = ($res_pending) ? $res_pending->fetch_assoc()['total'] : 0;
+
+$stat_total_approved = $stat_school + $stat_teacher + $stat_student;
+
+// 3. ดึงสถิติระดับรางวัลแยกตามระดับผลงาน (สำหรับ Dashboard และรายงาน SAR)
+$levels_stats = [
+    'โรงเรียน' => 0,
+    'กลุ่มโรงเรียน' => 0,
+    'เขตพื้นที่' => 0,
+    'จังหวัด' => 0,
+    'ภาค' => 0,
+    'ประเทศ' => 0
+];
+$lvl_res = $conn->query("SELECT rewardLevel, COUNT(*) as cnt FROM portfolios WHERE approved=1 GROUP BY rewardLevel");
+if ($lvl_res) {
+    while ($l_row = $lvl_res->fetch_assoc()) {
+        $lvl_name = $l_row['rewardLevel'];
+        if (array_key_exists($lvl_name, $levels_stats)) {
+            $levels_stats[$lvl_name] = (int)$l_row['cnt'];
+        }
+    }
+}
+
+// 4. ดึงข้อมูล 4 ผลงานล่าสุดที่อนุมัติแล้ว สำหรับหน้าแดชบอร์ดหลัก
+$latest_res = $conn->query("SELECT * FROM portfolios WHERE approved=1 ORDER BY createdAt DESC LIMIT 4");
 ?>
 <!DOCTYPE html>
 <html lang="th">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>คลังสะสมผลงานดิจิทัล - โรงเรียนบ้านหนองหว้า</title>
-    <!-- นำเข้า Tailwind CSS เพื่อความสวยงามขั้นสุดและ Responsive -->
+    <title>ระบบคลังผลงานและหลักฐานเชิงประจักษ์ - <?php echo htmlspecialchars($school_name); ?></title>
+    <!-- นำเข้า Tailwind CSS และฟอนต์ภาษาไทย -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- นำเข้าฟอนต์ภาษาไทย "Sarabun" และ "Inter" เพื่อความทันสมัย -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Sarabun:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Sarabun', 'Inter', sans-serif; }
+        .tab-active {
+            background-color: #F59E0B !important;
+            color: #030712 !important;
+            font-weight: 700 !important;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        @media print {
+            .print-hidden { display: none !important; }
+            body { background: white !important; color: black !important; }
+            .print-card { border: 1px solid #cbd5e1 !important; box-shadow: none !important; }
+        }
     </style>
 </head>
 <body class="bg-slate-50/70 text-slate-800 min-h-screen flex flex-col antialiased">
 
-    <!-- Header bar แถบเมนูด้านบนที่ดูดี มีการไล่สีหรูหรา และรองรับการแสดงผลบนสมาร์ทโฟน -->
-    <header class="bg-gradient-to-r from-blue-900 via-blue-800 to-indigo-950 text-white shadow-xl sticky top-0 z-50 print:hidden">
-        <div class="max-w-7xl mx-auto px-4 py-3.5 flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div class="flex items-center gap-3 text-center sm:text-left">
-                <div class="w-12 h-12 bg-white rounded-2xl p-1 shadow-inner flex items-center justify-center flex-shrink-0 overflow-hidden">
-                    <?php if (!empty($school_logo)): ?>
-                        <img src="<?php echo htmlspecialchars($school_logo); ?>" alt="School Logo" class="w-full h-full object-contain">
-                    <?php else: ?>
-                        <span class="text-blue-950 font-black text-lg">NHW</span>
-                    <?php endif; ?>
-                </div>
-                <div>
-                    <h1 class="text-base md:text-lg font-bold text-amber-400">ระบบประกันคุณภาพและคลังสะสมผลงานดิจิทัล</h1>
-                    <p class="text-[10px] md:text-xs text-blue-200"><?php echo htmlspecialchars($school_name); ?></p>
-                </div>
-            </div>
+    <!-- ส่วนหัวด้านบนสุด (Header & Banner) ที่เหมือนกับระบบใน AI Studio 100% -->
+    <header class="bg-gradient-to-r from-blue-900 via-blue-800 to-indigo-950 text-white shadow-xl sticky top-0 z-50 print-hidden">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div class="flex flex-col md:flex-row items-center justify-between gap-4">
+                
+                <!-- โลโก้และข้อมูลโรงเรียน -->
+                <div class="flex items-center gap-4 text-center md:text-left">
+                    <div class="relative w-16 h-16 bg-white rounded-full p-1.5 shadow-md flex-shrink-0 flex items-center justify-center overflow-hidden">
+                        <?php if (!empty($school_logo)): ?>
+                            <img src="<?php echo htmlspecialchars($school_logo); ?>" alt="School Logo" class="w-full h-full object-contain">
+                        <?php else: ?>
+                            <!-- แสดงตราโรงเรียนสีทองอันหรูหราที่ใช้บน AI Studio -->
+                            <svg viewBox="0 0 100 100" class="w-full h-full text-blue-900">
+                                <circle cx="50" cy="50" r="46" fill="none" stroke="#F59E0B" stroke-width="4" />
+                                <circle cx="50" cy="50" r="41" fill="#1E3A8A" />
+                                <path d="M25 65 L50 78 L75 65 L75 35 L50 48 L25 35 Z" fill="#F59E0B" opacity="0.9" />
+                                <path d="M50 20 C45 30 55 35 50 45 C48 35 46 30 50 20 Z" fill="#EF4444" />
+                                <path d="M50 25 C48 30 52 32 50 38 C49 32 48 30 50 25 Z" fill="#F59E0B" />
+                                <polygon points="50,11 53,16 58,16 54,19 56,24 50,21 44,24 46,19 42,16 47,16" fill="#F59E0B" />
+                            </svg>
+                        <?php endif; ?>
+                    </div>
 
-            <div class="flex items-center gap-3">
-                <?php if (isset($_SESSION['user_id'])): ?>
-                    <div class="bg-blue-950/60 border border-blue-700/50 rounded-xl px-4 py-1.5 flex items-center gap-3">
-                        <div class="text-right">
-                            <p class="text-xs font-bold text-white"><?php echo htmlspecialchars($_SESSION['user_name']); ?></p>
-                            <span class="text-[9px] bg-amber-400/20 text-amber-300 px-1.5 py-0.2 rounded font-extrabold uppercase">
-                                <?php echo ($_SESSION['user_role'] === 'admin') ? 'ผู้ดูแลระบบ (Admin)' : 'คุณครูผู้สอน'; ?>
+                    <div>
+                        <h1 class="text-xl md:text-2xl font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-amber-200 to-white">
+                            ระบบคลังผลงานและหลักฐานเชิงประจักษ์
+                        </h1>
+                        <div class="flex items-center gap-2 mt-0.5 justify-center md:justify-start">
+                            <span class="text-xs font-semibold bg-amber-500 text-blue-950 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                                <?php echo htmlspecialchars($school_name); ?>
+                            </span>
+                            <span class="text-xs text-blue-200 hidden sm:inline">
+                                | เพื่อการประกันคุณภาพและการประเมินสถานศึกษา
                             </span>
                         </div>
-                        <a href="logout.php" class="py-1 px-3 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-xs font-semibold border border-rose-500/20 transition-all">
-                            ออกจากระบบ
-                        </a>
                     </div>
-                <?php else: ?>
-                    <a href="login.php" class="px-5 py-2 bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-blue-950 font-extrabold text-xs rounded-xl shadow-lg transition-all transform hover:scale-[1.02] cursor-pointer">
-                        🔒 เข้าสู่ระบบครู / แอดมิน
-                    </a>
-                <?php endif; ?>
+                </div>
+
+                <!-- การล็อกอินและสถานะการเชื่อมต่อฐานข้อมูล -->
+                <div class="flex flex-wrap items-center justify-center gap-3">
+                    <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                        <span>MySQL Server Active</span>
+                    </div>
+
+                    <?php if (isset($_SESSION['user_id'])): ?>
+                        <div class="flex items-center bg-blue-950/60 border border-blue-700/50 rounded-xl p-1.5 pl-3 gap-3 shadow-inner">
+                            <div class="text-right">
+                                <p class="text-xs font-semibold text-white truncate max-w-[130px]"><?php echo htmlspecialchars($_SESSION['user_name']); ?></p>
+                                <span class="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-bold <?php echo ($_SESSION['user_role'] === 'admin') ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'; ?>">
+                                    <?php echo ($_SESSION['user_role'] === 'admin') ? 'ผู้ดูแลระบบ (Admin)' : 'คุณครูผู้สอน'; ?>
+                                </span>
+                            </div>
+                            <a href="logout.php" class="p-2 rounded-lg bg-rose-500/10 hover:bg-rose-500/30 text-rose-300 hover:text-white transition-colors flex items-center justify-center cursor-pointer" title="ออกจากระบบ">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" class="w-3.5 h-3.5">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                                </svg>
+                            </a>
+                        </div>
+                    <?php else: ?>
+                        <a href="login.php" class="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-blue-950 font-bold text-xs shadow-md transition-all cursor-pointer hover:scale-[1.03] active:scale-[0.98]">
+                            🔒 เข้าสู่ระบบครู / แอดมิน
+                        </a>
+                    <?php endif; ?>
+                </div>
             </div>
+        </div>
+
+        <!-- แถบเมนูนำทาง Navigation Bar เมนูหลัก / ผลงานต่างๆ / รายงาน / ตั้งค่า เหมือนใน AI Studio -->
+        <div class="bg-blue-950/40 border-t border-blue-800/40 backdrop-blur-sm">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex items-center justify-between h-12">
+                    
+                    <!-- เมนูสำหรับหน้าจอเดสก์ท็อป -->
+                    <nav class="hidden md:flex space-x-1">
+                        <a href="index.php?tab=dashboard" class="px-4 py-2 rounded-lg text-sm font-medium text-blue-100 hover:text-white hover:bg-blue-800/60 transition-all duration-200 <?php if($active_tab === 'dashboard') echo 'tab-active'; ?>">🏠 หน้าหลัก</a>
+                        <a href="index.php?tab=list_school" class="px-4 py-2 rounded-lg text-sm font-medium text-blue-100 hover:text-white hover:bg-blue-800/60 transition-all duration-200 <?php if($active_tab === 'list_school') echo 'tab-active'; ?>">🏫 ผลงานโรงเรียน</a>
+                        <a href="index.php?tab=list_teacher" class="px-4 py-2 rounded-lg text-sm font-medium text-blue-100 hover:text-white hover:bg-blue-800/60 transition-all duration-200 <?php if($active_tab === 'list_teacher') echo 'tab-active'; ?>">👩‍🏫 ผลงานคุณครู</a>
+                        <a href="index.php?tab=list_student" class="px-4 py-2 rounded-lg text-sm font-medium text-blue-100 hover:text-white hover:bg-blue-800/60 transition-all duration-200 <?php if($active_tab === 'list_student') echo 'tab-active'; ?>">🎓 ผลงานนักเรียน</a>
+                        <a href="index.php?tab=list" class="px-4 py-2 rounded-lg text-sm font-medium text-blue-100 hover:text-white hover:bg-blue-800/60 transition-all duration-200 <?php if($active_tab === 'list') echo 'tab-active'; ?>">📁 คลังหลักฐานทั้งหมด</a>
+                        
+                        <?php if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin'): ?>
+                            <a href="index.php?tab=setup" class="px-4 py-2 rounded-lg text-sm font-medium text-blue-100 hover:text-white hover:bg-blue-800/60 transition-all duration-200 <?php if($active_tab === 'setup') echo 'tab-active'; ?>">⚙️ ตั้งค่า & โค้ด Apps Script</a>
+                        <?php endif; ?>
+                    </nav>
+
+                    <!-- ปุ่มควบคุมในหน้าจอมือถือ -->
+                    <div class="flex md:hidden w-full justify-between items-center py-2">
+                        <span class="text-xs font-semibold text-blue-200">เมนูระบบประกันคุณภาพ:</span>
+                        <button onclick="document.getElementById('mobile-menu').classList.toggle('hidden')" class="p-2 rounded-lg bg-blue-900 text-blue-200 hover:text-white hover:bg-blue-800 transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" class="w-5 h-5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+                            </svg>
+                        </button>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- รายการเมนูดึงลงสำหรับหน้าจอมือถือ -->
+        <div id="mobile-menu" class="hidden md:hidden bg-blue-950 border-t border-blue-800 px-4 py-2 space-y-1 shadow-inner print-hidden">
+            <a href="index.php?tab=dashboard" class="block px-4 py-3 rounded-lg text-sm font-medium text-blue-100 hover:bg-blue-900/60 <?php if($active_tab === 'dashboard') echo 'bg-amber-500 text-blue-950 font-semibold'; ?>">🏠 หน้าหลัก</a>
+            <a href="index.php?tab=list_school" class="block px-4 py-3 rounded-lg text-sm font-medium text-blue-100 hover:bg-blue-900/60 <?php if($active_tab === 'list_school') echo 'bg-amber-500 text-blue-950 font-semibold'; ?>">🏫 ผลงานโรงเรียน</a>
+            <a href="index.php?tab=list_teacher" class="block px-4 py-3 rounded-lg text-sm font-medium text-blue-100 hover:bg-blue-900/60 <?php if($active_tab === 'list_teacher') echo 'bg-amber-500 text-blue-950 font-semibold'; ?>">👩‍🏫 ผลงานคุณครู</a>
+            <a href="index.php?tab=list_student" class="block px-4 py-3 rounded-lg text-sm font-medium text-blue-100 hover:bg-blue-900/60 <?php if($active_tab === 'list_student') echo 'bg-amber-500 text-blue-950 font-semibold'; ?>">🎓 ผลงานนักเรียน</a>
+            <a href="index.php?tab=list" class="block px-4 py-3 rounded-lg text-sm font-medium text-blue-100 hover:bg-blue-900/60 <?php if($active_tab === 'list') echo 'bg-amber-500 text-blue-950 font-semibold'; ?>">📁 คลังหลักฐานทั้งหมด</a>
+            <?php if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin'): ?>
+                <a href="index.php?tab=setup" class="block px-4 py-3 rounded-lg text-sm font-medium text-blue-100 hover:bg-blue-900/60 <?php if($active_tab === 'setup') echo 'bg-amber-500 text-blue-950 font-semibold'; ?>">⚙️ ตั้งค่า & โค้ด Apps Script</a>
+            <?php endif; ?>
         </div>
     </header>
 
-    <!-- ข้อมูลแผงสถิติและเนื้อหาหลัก -->
+    <!-- เนื้อหาการทำงานหลัก (Main Content Section) -->
     <main class="max-w-7xl mx-auto px-4 py-8 flex-1 w-full space-y-8">
         
-        <!-- แจ้งเตือนเมื่อทำรายการสำเร็จ -->
+        <!-- แถบแสดงข้อความแจ้งเตือน (Notifications) -->
         <?php if(isset($_GET['msg'])): ?>
-            <div class="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-2xl flex items-center gap-2 shadow-sm">
-                <span>✅</span>
-                <span>
+            <div class="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-2xl flex items-center gap-2 shadow-sm print-hidden">
+                <span class="text-base">✅</span>
+                <span class="font-bold">
                     <?php 
                         if ($_GET['msg'] === 'settings_updated') {
-                            echo 'บันทึกการตั้งค่าโรงเรียนและเชื่อมต่อระบบ Google Drive สำเร็จเรียบร้อยแล้ว!';
+                            echo 'บันทึกการตั้งค่าโรงเรียนและเชื่อมต่อระบบสำเร็จเรียบร้อยแล้ว!';
                         } elseif ($_GET['msg'] === 'approved') {
-                            echo 'อนุมัติเผยแพร่ผลงานเรียบร้อยแล้ว!';
+                            echo 'อนุมัติเผยแพร่ผลงานที่เลือกเรียบร้อยแล้ว!';
                         } elseif ($_GET['msg'] === 'deleted') {
-                            echo 'ลบผลงานออกจากระบบเรียบร้อยแล้ว!';
+                            echo 'ลบข้อมูลผลงานออกจากระบบเรียบร้อยแล้ว!';
                         } else {
                             echo 'ทำรายการสำเร็จเรียบร้อยแล้ว!';
                         }
@@ -195,86 +321,774 @@ if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') {
             </div>
         <?php endif; ?>
 
-        <?php if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin'): ?>
-            <!-- แผงตั้งค่าผู้ดูแลระบบและรหัสเชื่อมโยง Google Drive (Admin Settings) -->
-            <section class="bg-white p-6 rounded-3xl shadow-sm border border-blue-100 text-left">
-                <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
-                    <div class="flex items-center gap-2.5">
-                        <span class="text-xl">⚙️</span>
-                        <div>
-                            <h2 class="text-sm font-extrabold text-slate-800">แผงควบคุมตั้งค่าโรงเรียนและระบบเชื่อมโยงคลังข้อมูล Google Drive</h2>
-                            <p class="text-[10px] text-gray-400">สำหรับผู้ดูแลระบบ (Admin) เท่านั้น เพื่อเชื่อมต่อสื่อ/เอกสารแนบกับ Google Drive ได้โดยตรง</p>
-                        </div>
+        <!-- ==============================================
+             CASE 1: หน้าหลัก / แดชบอร์ดหลัก (DASHBOARD TAB)
+             ============================================== -->
+        <?php if ($active_tab === 'dashboard'): ?>
+            
+            <!-- ยินดีต้อนรับแบนเนอร์ -->
+            <section class="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-900 p-8 rounded-3xl text-white text-left relative overflow-hidden shadow-xl border border-blue-800">
+                <div class="relative z-10 space-y-3">
+                    <div class="inline-flex items-center gap-1 bg-amber-400 text-blue-950 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-widest">
+                        ✨ ประกันคุณภาพการศึกษายุคใหม่
+                    </div>
+                    <h2 class="text-xl md:text-3xl font-black">ยินดีต้อนรับเข้าสู่ระบบคลังผลงานดิจิทัล โรงเรียนบ้านหนองหว้า</h2>
+                    <p class="text-xs md:text-sm text-blue-100 max-w-2xl leading-relaxed">
+                        ระบบจัดเก็บและรวบรวมหลักฐานเชิงประจักษ์แบบเรียลไทม์ เพื่อรองรับการประเมินตนเอง (SAR), ข้อตกลงในการพัฒนางาน (PA) และการตรวจประกันคุณภาพสถานศึกษาด้วยการใช้เทคโนโลยีฐานข้อมูลขั้นสูงอย่างเต็มรูปแบบ
+                    </p>
+                    <div class="flex gap-3 pt-2">
+                        <a href="index.php?tab=list" class="px-5 py-2 bg-amber-500 hover:bg-amber-400 text-blue-950 text-xs font-bold rounded-xl shadow-lg transition-all">
+                            📁 สำรวจผลงานทั้งหมด
+                        </a>
+                        <?php if (isset($_SESSION['user_id'])): ?>
+                            <a href="add_portfolio.php" class="px-5 py-2 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-xl border border-white/20 transition-all">
+                                ➕ บันทึกผลงานใหม่
+                            </a>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <div class="absolute right-0 bottom-0 top-0 w-1/3 opacity-15 hidden md:block select-none pointer-events-none">
+                    <svg viewBox="0 0 100 100" class="w-full h-full text-white">
+                        <polygon points="50,15 65,35 90,35 70,55 80,85 50,70 20,85 30,55 10,35 35,35" fill="currentColor" />
+                    </svg>
+                </div>
+            </section>
+
+            <!-- แผงสถิติรวม (Dashboard Panels) -->
+            <section class="grid grid-cols-2 lg:grid-cols-4 gap-5">
+                <a href="index.php?tab=list_school" class="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex items-center justify-between transition-all hover:shadow-md hover:scale-[1.01]">
+                    <div>
+                        <span class="text-xs text-gray-400 font-extrabold block">🏫 ผลงานโรงเรียน</span>
+                        <strong class="text-3xl font-black text-blue-900 mt-1 block"><?php echo $stat_school; ?></strong>
+                        <span class="text-[10px] text-blue-600 font-bold mt-1 inline-block">ดูคลังสื่อโรงเรียน →</span>
+                    </div>
+                    <div class="w-12 h-12 rounded-2xl bg-blue-50 text-blue-950 flex items-center justify-center text-xl shadow-sm font-bold">🏫</div>
+                </a>
+                
+                <a href="index.php?tab=list_teacher" class="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex items-center justify-between transition-all hover:shadow-md hover:scale-[1.01]">
+                    <div>
+                        <span class="text-xs text-gray-400 font-extrabold block">👩‍🏫 ผลงานคุณครู</span>
+                        <strong class="text-3xl font-black text-amber-600 mt-1 block"><?php echo $stat_teacher; ?></strong>
+                        <span class="text-[10px] text-amber-600 font-bold mt-1 inline-block">ดูคลังสื่อคุณครู →</span>
+                    </div>
+                    <div class="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center text-xl shadow-sm font-bold">👩‍🏫</div>
+                </a>
+
+                <a href="index.php?tab=list_student" class="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex items-center justify-between transition-all hover:shadow-md hover:scale-[1.01]">
+                    <div>
+                        <span class="text-xs text-gray-400 font-extrabold block">🎓 ผลงานนักเรียน</span>
+                        <strong class="text-3xl font-black text-emerald-600 mt-1 block"><?php echo $stat_student; ?></strong>
+                        <span class="text-[10px] text-emerald-600 font-bold mt-1 inline-block">ดูคลังสื่อนักเรียน →</span>
+                    </div>
+                    <div class="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-xl shadow-sm font-bold">🎓</div>
+                </a>
+
+                <div class="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 flex items-center justify-between transition-all">
+                    <div>
+                        <span class="text-xs text-gray-400 font-extrabold block">⏳ รายการรออนุมัติ</span>
+                        <strong class="text-3xl font-black text-rose-600 mt-1 block"><?php echo $stat_pending; ?></strong>
+                        <span class="text-[10px] text-slate-400 mt-1 inline-block">สิทธิ์แอดมินในการประเมิน</span>
+                    </div>
+                    <div class="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center text-xl shadow-sm font-bold">⏳</div>
+                </div>
+            </section>
+
+            <!-- แผนภูมิแบบแท่งและสถิติแยกตามระดับรางวัลด้านล่างบอร์ด -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                <!-- ระดับความรางวัลที่โรงเรียนและคุณครูได้รับ -->
+                <div class="lg:col-span-2 bg-white p-6 rounded-3xl shadow-sm border border-slate-100 text-left space-y-4">
+                    <div>
+                        <h3 class="font-black text-sm text-slate-800">📊 แผนภูมิระดับรางวัลแยกตามระดับผลงานเชิงประจักษ์</h3>
+                        <p class="text-[10px] text-slate-400">สถิติสะสมจากรายการที่เผยแพร่สำเร็จในฐานข้อมูล (จำนวน <?php echo $stat_total_approved; ?> รายการ)</p>
+                    </div>
+                    
+                    <div class="space-y-3 pt-2 text-xs">
+                        <?php 
+                        foreach ($levels_stats as $level => $cnt): 
+                            $percentage = $stat_total_approved > 0 ? ($cnt / $stat_total_approved) * 100 : 0;
+                            // สีแถบตามระดับ
+                            $bar_color = 'bg-blue-600';
+                            if ($level === 'ประเทศ') $bar_color = 'bg-amber-500';
+                            elseif ($level === 'ภาค') $bar_color = 'bg-purple-600';
+                            elseif ($level === 'จังหวัด') $bar_color = 'bg-rose-500';
+                            elseif ($level === 'เขตพื้นที่') $bar_color = 'bg-emerald-600';
+                        ?>
+                            <div class="space-y-1">
+                                <div class="flex justify-between font-bold text-slate-700">
+                                    <span>🏅 ระดับ<?php echo $level; ?></span>
+                                    <span><?php echo $cnt; ?> รายการ (<?php echo round($percentage, 1); ?>%)</span>
+                                </div>
+                                <div class="w-full bg-slate-100 rounded-full h-3.5 overflow-hidden">
+                                    <div class="<?php echo $bar_color; ?> h-full rounded-full transition-all duration-1000" style="width: <?php echo max($percentage, 1.5); ?>%"></div>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
                     </div>
                 </div>
 
-                <form method="POST" class="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs">
+                <!-- การนำทางด่วนและแนะนำการบันทึกผลงาน -->
+                <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 text-left flex flex-col justify-between">
                     <div class="space-y-4">
-                        <div>
-                            <label class="block font-bold text-gray-700 mb-1">🏫 ชื่อโรงเรียน / สถาบัน</label>
-                            <input type="text" name="school_name" value="<?php echo htmlspecialchars($school_name); ?>" required class="w-full px-3 py-2.5 rounded-xl border border-gray-200 outline-none focus:border-blue-500 bg-slate-50/50">
+                        <div class="pb-2 border-b">
+                            <h3 class="font-black text-sm text-slate-800">💡 การประเมินคุณภาพและ SAR คืออะไร?</h3>
+                            <p class="text-[10px] text-slate-400">แนวปฏิบัติในการเขียนรายงานประเมินตนเอง</p>
                         </div>
-                        <div>
-                            <label class="block font-bold text-gray-700 mb-1">🎨 ลิงก์โลโก้โรงเรียน (Image URL)</label>
-                            <input type="url" name="school_logo" value="<?php echo htmlspecialchars($school_logo); ?>" placeholder="https://example.com/logo.png" class="w-full px-3 py-2.5 rounded-xl border border-gray-200 outline-none focus:border-blue-500 bg-slate-50/50">
-                            <p class="text-[9px] text-gray-400 mt-1">💡 ป้อนลิงก์ที่อยู่ไฟล์รูปภาพโลโก้ของคุณ เพื่อนำไปแสดงในแถบเมนูด้านบน</p>
+                        <div class="text-xs text-slate-600 space-y-3.5">
+                            <p class="leading-relaxed">
+                                <strong>SAR (Self-Assessment Report)</strong> เป็นเอกสารสะท้อนคุณภาพที่รวมรวมสถิติ ตัวบ่งชี้ และผลงานเชิงประจักษ์ของครูและโรงเรียนในรอบปีการศึกษา เพื่อรายงานต่อต้นสังกัดและผู้เกี่ยวข้อง
+                            </p>
+                            <p class="leading-relaxed">
+                                ระบบคลังนี้ช่วยให้ครูและแอดมินค้นหา สรุปสถิติผลงาน และดึงลิงก์หลักฐานแนบไปใช้เขียน SAR ได้โดยตรง สะดวก ไม่สูญหาย และอ้างอิงได้อย่างถูกต้อง
+                            </p>
                         </div>
                     </div>
+                    
+                    <div class="pt-4 border-t mt-4">
+                        <a href="index.php?tab=reports" class="w-full inline-flex items-center justify-center gap-1 py-2.5 bg-blue-900 hover:bg-blue-800 text-white font-extrabold text-xs rounded-xl shadow transition-all">
+                            📈 เข้าสู่ออกรายงานแบบรายงาน SAR
+                        </a>
+                    </div>
+                </div>
 
-                    <div class="space-y-4">
-                        <div>
-                            <label class="block font-bold text-gray-700 mb-1">📁 Google Drive Folder ID</label>
-                            <input type="text" name="google_drive_folder_id" value="<?php echo htmlspecialchars($google_drive_folder_id); ?>" placeholder="1aBcD-eFgHiJkLmNoPqRsTuVwXyZ" class="w-full px-3 py-2.5 rounded-xl border border-gray-200 outline-none focus:border-blue-500 bg-slate-50/50">
-                            <p class="text-[9px] text-gray-400 mt-1">💡 คัดลอก ID จาก URL โฟลเดอร์ใน Google Drive ของคุณที่ต้องการใช้จัดเก็บไฟล์</p>
+            </div>
+
+            <!-- Feed ข้อมูลล่าสุด 4 รายการที่เพิ่งอนุมัติใหม่ล่าสุด -->
+            <section class="space-y-4 text-left">
+                <div class="flex justify-between items-center px-1">
+                    <div>
+                        <h3 class="text-sm font-extrabold text-slate-800 uppercase tracking-wider">🆕 ผลงานที่เผยแพร่ล่าสุดในระบบ</h3>
+                        <p class="text-[10px] text-gray-400">รายการคัดสรรผ่านการประกันและรับรองมาตรฐานอย่างเป็นทางการ</p>
+                    </div>
+                    <a href="index.php?tab=list" class="text-xs font-bold text-blue-900 hover:underline">ดูคลังทั้งหมด →</a>
+                </div>
+
+                <?php if ($latest_res && $latest_res->num_rows > 0): ?>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <?php while($row = $latest_res->fetch_assoc()): ?>
+                            <div class="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between hover:shadow-md transition-all">
+                                <div class="space-y-3 text-left">
+                                    <div class="flex justify-between items-start gap-2">
+                                        <span class="text-[9px] font-extrabold px-3 py-1 rounded-full uppercase tracking-wider <?php 
+                                            if($row['category'] == 'school') echo 'bg-blue-50 text-blue-900';
+                                            elseif($row['category'] == 'teacher') echo 'bg-amber-50 text-amber-700';
+                                            else echo 'bg-emerald-50 text-emerald-700';
+                                        ?>">
+                                            <?php 
+                                                if($row['category'] == 'school') echo '🏫 ผลงานโรงเรียน';
+                                                elseif($row['category'] == 'teacher') echo '👩‍🏫 ผลงานคุณครู';
+                                                else echo '🎓 ผลงานนักเรียน';
+                                            ?>
+                                        </span>
+                                        <span class="text-[10px] font-bold text-gray-400">ปีการศึกษา <?php echo htmlspecialchars($row['academicYear']); ?></span>
+                                    </div>
+
+                                    <h3 class="font-extrabold text-sm text-gray-800 leading-snug"><?php echo htmlspecialchars($row['title']); ?></h3>
+                                    <p class="text-xs text-gray-500 line-clamp-3 leading-relaxed"><?php echo htmlspecialchars($row['description']); ?></p>
+
+                                    <div class="pt-3 border-t border-gray-100 space-y-1.5 text-xs text-gray-600 bg-slate-50/50 p-3 rounded-xl">
+                                        <p class="flex items-center gap-1.5">
+                                            <span>🏅</span>
+                                            <span class="font-semibold text-gray-700">รางวัล/ประเภท:</span> 
+                                            <span class="text-blue-950 font-bold"><?php echo htmlspecialchars($row['type']); ?> (<?php echo htmlspecialchars($row['rewardLevel']); ?>)</span>
+                                        </p>
+                                        <p class="flex items-center gap-1.5">
+                                            <span>👤</span>
+                                            <span class="font-semibold text-gray-700">ผู้รับรางวัล:</span> 
+                                            <strong class="text-gray-800"><?php echo htmlspecialchars($row['ownerName']); ?></strong>
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div class="mt-4 pt-3 border-t border-gray-100 flex justify-between items-center">
+                                    <span class="text-[9px] font-semibold text-gray-400">วันที่ได้รับรางวัล: <?php echo htmlspecialchars($row['awardDate']); ?></span>
+                                    
+                                    <div class="flex items-center gap-1.5">
+                                        <?php if (!empty($row['attachmentUrl'])): ?>
+                                            <a href="<?php echo htmlspecialchars($row['attachmentUrl']); ?>" target="_blank" class="px-3 py-1 bg-blue-50 text-blue-900 text-[10px] font-extrabold rounded-lg hover:bg-blue-100 transition-all">
+                                                🔗 เปิดลิงก์หลักฐาน
+                                            </a>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endwhile; ?>
+                    </div>
+                <?php else: ?>
+                    <div class="bg-white p-8 text-center rounded-2xl border border-slate-100 text-xs text-slate-400">ไม่พบรายการผลงานเผยแพร่ล่าสุดขณะนี้</div>
+                <?php endif; ?>
+            </section>
+
+        <!-- ==============================================
+             CASE 2: รายการคลังผลงานแยกแต่ละหมวดหมู่ (PORTFOLIOS LIST TAB)
+             ============================================== -->
+        <?php elseif (in_array($active_tab, ['list_school', 'list_teacher', 'list_student', 'list'])): ?>
+            
+            <!-- แผงตัวกรองและค้นหาผลงาน -->
+            <section class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 print-hidden">
+                <form method="GET" class="flex flex-col md:flex-row gap-4 items-end text-xs">
+                    <!-- ล็อคพารามิเตอร์ tab ไว้เพื่อให้เปลี่ยนหน้าแล้วผลลัพธ์ยังกรองได้ -->
+                    <input type="hidden" name="tab" value="<?php echo htmlspecialchars($active_tab); ?>">
+
+                    <div class="flex-1 w-full text-left">
+                        <label class="text-xs font-bold text-gray-600 block mb-1.5">🔍 ค้นหาคลังผลงาน</label>
+                        <input type="text" name="search" value="<?php echo htmlspecialchars($search_query); ?>" placeholder="พิมพ์คำสำคัญ เช่น ชื่อรางวัล, ผู้จัดทำ, หน่วยงาน, หรือระดับชั้น..." class="w-full text-xs px-4 py-3 rounded-xl border border-gray-200 outline-none focus:border-blue-500 transition-all bg-slate-50/50">
+                    </div>
+                    
+                    <?php if ($active_tab === 'list'): ?>
+                        <div class="w-full md:w-52 text-left">
+                            <label class="text-xs font-bold text-gray-600 block mb-1.5">📂 หมวดหมู่ผลงาน</label>
+                            <select name="category" class="w-full text-xs px-4 py-3 rounded-xl border border-gray-200 outline-none focus:border-blue-500 bg-white">
+                                <option value="">หมวดหมู่ทั้งหมด</option>
+                                <option value="school" <?php if($category_filter == 'school') echo 'selected'; ?>>🏫 ผลงานโรงเรียน</option>
+                                <option value="teacher" <?php if($category_filter == 'teacher') echo 'selected'; ?>>👩‍🏫 ผลงานคุณครู</option>
+                                <option value="student" <?php if($category_filter == 'student') echo 'selected'; ?>>🎓 ผลงานนักเรียน</option>
+                            </select>
                         </div>
-                        <div>
-                            <label class="block font-bold text-gray-700 mb-1">⚡ Google Apps Script Web App URL</label>
-                            <input type="url" name="google_apps_script_url" value="<?php echo htmlspecialchars($google_apps_script_url); ?>" placeholder="https://script.google.com/macros/s/.../exec" class="w-full px-3 py-2.5 rounded-xl border border-gray-200 outline-none focus:border-blue-500 bg-slate-50/50">
-                            <p class="text-[9px] text-gray-400 mt-1">💡 ป้อนลิงก์ Web App ที่เผยแพร่จาก Google Apps Script เพื่อใช้ส่งไฟล์อัปโหลดเข้า Drive</p>
-                        </div>
+                    <?php endif; ?>
+
+                    <div class="w-full md:w-44 text-left">
+                        <label class="text-xs font-bold text-gray-600 block mb-1.5">📅 ปีการศึกษา</label>
+                        <select name="year" class="w-full text-xs px-4 py-3 rounded-xl border border-gray-200 outline-none focus:border-blue-500 bg-white">
+                            <option value="">ปีการศึกษาทั้งหมด</option>
+                            <?php foreach($academic_years as $yr): ?>
+                                <option value="<?php echo $yr; ?>" <?php if($year_filter == $yr) echo 'selected'; ?>>
+                                    ปีการศึกษา <?php echo $yr; ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
 
-                    <div class="md:col-span-2 pt-2 border-t border-slate-100 flex flex-col md:flex-row gap-4 items-center justify-between">
-                        <button type="button" onclick="document.getElementById('gas-script-modal').classList.toggle('hidden')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg cursor-pointer transition-all flex items-center gap-1.5">
-                            <span>📋 ดูโค้ด Google Apps Script</span>
+                    <div class="flex gap-2 w-full md:w-auto">
+                        <button type="submit" class="flex-1 md:flex-none px-6 py-3 bg-blue-900 hover:bg-blue-800 text-white font-extrabold text-xs rounded-xl shadow cursor-pointer transition-all">
+                            ค้นหาด่วน
                         </button>
-                        <button type="submit" name="save_settings" class="w-full md:w-auto px-6 py-2.5 bg-blue-900 hover:bg-blue-800 text-white font-extrabold rounded-xl shadow-md transition-all cursor-pointer">
-                            💾 บันทึกการตั้งค่าทั้งหมด
-                        </button>
+                        <a href="index.php?tab=<?php echo $active_tab; ?>" class="px-5 py-3 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-bold rounded-xl text-center transition-all">
+                            ล้างค่า
+                        </a>
                     </div>
                 </form>
             </section>
 
-            <!-- Modal สำหรับดูโค้ด Google Apps Script -->
-            <div id="gas-script-modal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                <div class="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl space-y-4 text-left flex flex-col max-h-[85vh]">
-                    <div class="flex justify-between items-center pb-2 border-b">
-                        <div class="flex items-center gap-2">
-                            <span class="text-lg">📋</span>
-                            <h3 class="font-bold text-sm text-slate-800">โค้ดสำหรับสร้าง Google Apps Script เพื่อเชื่อมต่อกับ Google Drive</h3>
-                        </div>
-                        <button onclick="document.getElementById('gas-script-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600 font-extrabold text-sm p-1">❌ ปิด</button>
+            <!-- รายการแสดงผลงานหลัก -->
+            <section class="space-y-4">
+                <div class="flex justify-between items-center px-1">
+                    <div class="text-left">
+                        <h2 class="text-sm font-extrabold text-gray-800 uppercase tracking-wider">
+                            <?php 
+                                if($active_tab == 'list_school') echo '🏫 คลังผลงานโรงเรียน';
+                                elseif($active_tab == 'list_teacher') echo '👩‍🏫 คลังผลงานคุณครู';
+                                elseif($active_tab == 'list_student') echo '🎓 คลังผลงานนักเรียน';
+                                else echo '📁 คลังหลักฐานและผลงานเชิงประจักษ์ทั้งหมด';
+                            ?>
+                        </h2>
+                        <p class="text-[10px] text-gray-400">พบผลงานทั้งหมด <?php echo $result->num_rows; ?> รายการในเงื่อนไขการค้นหา</p>
                     </div>
+                    <?php if (isset($_SESSION['user_id'])): ?>
+                        <a href="add_portfolio.php" class="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white text-xs font-bold rounded-xl shadow-lg flex items-center gap-1.5 transition-all">
+                            <span>➕ บันทึกผลงานใหม่</span>
+                        </a>
+                    <?php endif; ?>
+                </div>
+
+                <?php if ($result->num_rows == 0): ?>
+                    <div class="bg-white p-16 text-center rounded-3xl border border-slate-100 shadow-sm space-y-2">
+                        <span class="text-5xl block">📂</span>
+                        <p class="text-sm font-bold text-gray-500">ไม่พบข้อมูลผลงานในหมวดหมู่นี้ขณะนี้</p>
+                        <p class="text-xs text-gray-400">กรุณาลงชื่อเข้าใช้งานผู้สอนเพื่อเริ่มบันทึกผลงานเชิงประจักษ์ชิ้นใหม่ลงฐานข้อมูล</p>
+                    </div>
+                <?php else: ?>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <?php while($row = $result->fetch_assoc()): ?>
+                            <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col justify-between hover:shadow-md transition-all text-left relative <?php if(!$row['approved']) echo 'border-amber-300 bg-amber-50/10'; ?>">
+                                <?php
+                                    $attachments = [];
+                                    if (!empty($row['attachments'])) {
+                                        $attachments = json_decode($row['attachments'], true);
+                                    }
+                                    $cover_image = '';
+                                    if (is_array($attachments)) {
+                                        foreach ($attachments as $att) {
+                                            $name_lower = isset($att['name']) ? strtolower($att['name']) : '';
+                                            $type_lower = isset($att['type']) ? strtolower($att['type']) : '';
+                                            $url = isset($att['url']) ? $att['url'] : '';
+                                            if (str_starts_with($type_lower, 'image/') || 
+                                                str_ends_with($name_lower, '.jpg') || 
+                                                str_ends_with($name_lower, '.jpeg') || 
+                                                str_ends_with($name_lower, '.png') ||
+                                                str_ends_with($name_lower, '.gif') ||
+                                                str_ends_with($name_lower, '.webp') ||
+                                                str_contains(strtolower($url), '.jpg') ||
+                                                str_contains(strtolower($url), '.jpeg') ||
+                                                str_contains(strtolower($url), '.png')) {
+                                                
+                                                // Convert google drive url if applicable
+                                                if (str_contains($url, 'drive.google.com') && (str_contains($url, '/file/d/') || str_contains($url, 'id='))) {
+                                                    $file_id = '';
+                                                    if (preg_match('/\/file\/d\/([a-zA-Z0-9-_]+)/', $url, $matches)) {
+                                                        $file_id = $matches[1];
+                                                    } elseif (preg_match('/id=([a-zA-Z0-9-_]+)/', $url, $matches)) {
+                                                        $file_id = $matches[1];
+                                                    }
+                                                    if (!empty($file_id)) {
+                                                        $url = "https://drive.google.com/uc?export=view&id=" . $file_id;
+                                                    }
+                                                }
+                                                $cover_image = $url;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if (empty($cover_image)) {
+                                        if ($row['category'] === 'school') {
+                                            $cover_image = 'https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&q=80&w=600';
+                                        } else if ($row['category'] === 'teacher') {
+                                            $cover_image = 'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?auto=format&fit=crop&q=80&w=600';
+                                        } else {
+                                            $cover_image = 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&q=80&w=600';
+                                        }
+                                    }
+                                ?>
+                                
+                                <!-- Cover Image & Category Label -->
+                                <div class="relative h-48 overflow-hidden rounded-t-2xl bg-slate-100 -mx-6 -mt-6 mb-4">
+                                    <img 
+                                      src="<?php echo htmlspecialchars($cover_image); ?>" 
+                                      alt="<?php echo htmlspecialchars($row['title']); ?>" 
+                                      class="w-full h-full object-cover hover:scale-105 transition-transform duration-500"
+                                      referrerpolicy="no-referrer"
+                                    />
+                                    <div class="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent"></div>
+                                    
+                                    <!-- Category & Year pill bottom bar -->
+                                    <div class="absolute bottom-3 left-3 right-3 flex justify-between items-center">
+                                        <span class="text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-md border <?php 
+                                            if($row['category'] == 'school') echo 'bg-blue-100 text-blue-900 border-blue-200';
+                                            elseif($row['category'] == 'teacher') echo 'bg-amber-100 text-amber-900 border-amber-200';
+                                            else echo 'bg-emerald-100 text-emerald-900 border-emerald-200';
+                                        ?>">
+                                            <?php 
+                                                if($row['category'] == 'school') echo 'ผลงานโรงเรียน';
+                                                elseif($row['category'] == 'teacher') echo 'ผลงานคุณครู';
+                                                else echo 'ผลงานนักเรียน';
+                                            ?>
+                                        </span>
+                                        <span class="text-[10px] font-semibold text-white bg-black/40 backdrop-blur-xs px-2.5 py-0.5 rounded-md">
+                                            ปีการศึกษา <?php echo htmlspecialchars($row['academicYear']); ?>
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div class="space-y-3 text-left">
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-[10px] font-bold text-gray-400">หมวดหมู่: <?php echo $row['category'] === 'school' ? 'โรงเรียน' : ($row['category'] === 'teacher' ? 'คุณครู' : 'นักเรียน'); ?></span>
+                                        <?php if(!$row['approved']): ?>
+                                            <span class="text-[9px] bg-amber-100 text-amber-800 font-extrabold px-2 py-0.5 rounded">รออนุมัติ</span>
+                                        <?php endif; ?>
+                                    </div>
+
+                                    <h3 class="font-extrabold text-sm text-gray-800 leading-snug"><?php echo htmlspecialchars($row['title']); ?></h3>
+                                    <p class="text-xs text-gray-500 leading-relaxed"><?php echo htmlspecialchars($row['description']); ?></p>
+
+                                    <!-- ข้อมูลรายละเอียดผลงาน -->
+                                    <div class="pt-3 border-t border-gray-100 space-y-1.5 text-xs text-gray-600 bg-slate-50/50 p-3 rounded-2xl">
+                                        <p class="flex items-center gap-1.5">
+                                            <span class="text-sm">🏅</span>
+                                            <span class="font-bold text-gray-700">รางวัล/ประเภท:</span> 
+                                            <span class="text-blue-900 font-bold"><?php echo htmlspecialchars($row['type']); ?> (ระดับ<?php echo htmlspecialchars($row['rewardLevel']); ?>)</span>
+                                        </p>
+                                        <p class="flex items-center gap-1.5">
+                                            <span class="text-sm">👤</span>
+                                            <span class="font-bold text-gray-700">ผู้รับรางวัล/เจ้าของ:</span> 
+                                            <strong class="text-gray-800"><?php echo htmlspecialchars($row['ownerName']); ?> (<?php echo htmlspecialchars($row['position']); ?>)</strong>
+                                        </p>
+                                        <p class="flex items-center gap-1.5">
+                                            <span class="text-sm">🏢</span>
+                                            <span class="font-bold text-gray-700">หน่วยงานผู้มอบ:</span> 
+                                            <span class="text-gray-500 font-medium"><?php echo htmlspecialchars($row['giver']); ?></span>
+                                        </p>
+                                        <?php if(!empty($row['studentClass'])): ?>
+                                            <p class="flex items-center gap-1.5">
+                                                <span class="text-sm">🎓</span>
+                                                <span class="font-bold text-gray-700">ชั้นเรียนที่จัดทำ:</span> 
+                                                <span class="text-gray-500 font-medium"><?php echo htmlspecialchars($row['studentClass']); ?></span>
+                                            </p>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+
+                                <div class="mt-5 pt-4 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-[10px] text-gray-400">
+                                    <span class="font-medium">🏆 วันที่บันทึก: <?php echo substr($row['createdAt'], 0, 10); ?></span>
+                                    
+                                    <div class="flex items-center gap-2">
+                                        <?php if (!empty($row['attachmentUrl'])): ?>
+                                            <a href="<?php echo htmlspecialchars($row['attachmentUrl']); ?>" target="_blank" class="px-3.5 py-1.5 bg-blue-900 hover:bg-blue-800 text-white font-bold rounded-lg transition-all shadow-sm">
+                                                🔗 ลิงก์ไฟล์แนบ
+                                            </a>
+                                        <?php endif; ?>
+
+                                        <?php if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin'): ?>
+                                            <?php if (!$row['approved']): ?>
+                                                <a href="index.php?tab=<?php echo $active_tab; ?>&approve_id=<?php echo $row['id']; ?>" class="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold px-3 py-1.5 rounded-lg shadow-sm transition-all">
+                                                    อนุมัติ
+                                                </a>
+                                            <?php endif; ?>
+                                            <a href="index.php?tab=<?php echo $active_tab; ?>&delete_id=<?php echo $row['id']; ?>" onclick="return confirm('ยืนยันลบผลงานนี้ออกจากคลังข้อมูลถาวร?')" class="bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold px-3 py-1.5 rounded-lg transition-all">
+                                                ลบ
+                                            </a>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+
+                            </div>
+                        <?php endwhile; ?>
+                    </div>
+                <?php endif; ?>
+            </section>
+
+        <!-- ==============================================
+             CASE 3: หน้าออกรายงานประเมินและสถิติสะสม (REPORTS TAB)
+             ============================================== -->
+        <?php elseif (false && $active_tab === 'reports'): ?>
+            <section class="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 text-left space-y-6">
+                <div class="border-b border-slate-100 pb-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div>
+                        <h2 class="text-xl font-black text-slate-800">📈 รายงานสรุปข้อมูลสถิติประกันคุณภาพการศึกษา (SAR)</h2>
+                        <p class="text-xs text-slate-400">ข้อมูลรวมและประเมินผลงานครูและนักเรียน โรงเรียนบ้านหนองหว้า</p>
+                    </div>
+                    <div class="flex gap-2 print-hidden">
+                        <button onclick="window.print()" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer transition-all">
+                            <span>🖨️ พิมพ์รายงาน / PDF</span>
+                        </button>
+                        <button onclick="exportReportsToCSV()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer transition-all">
+                            <span>📥 ดาวน์โหลด Excel (.CSV)</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ส่วนตัวเลือกคัดกรองรายงานเฉพาะจุด (ซ่อนเมื่อพิมพ์รายงาน) -->
+                <div class="bg-slate-50/50 p-5 rounded-2xl border border-slate-150 flex flex-wrap gap-4 items-end text-xs print-hidden">
+                    <div class="w-full sm:w-64 text-left space-y-1">
+                        <span class="font-bold text-slate-600 block">📂 หมวดหมู่ผลงานเพื่อจัดกลุ่ม</span>
+                        <select id="report-cat-select" onchange="filterReportRows()" class="w-full text-xs px-3 py-2 rounded-xl border border-gray-200 outline-none focus:border-blue-500 bg-white">
+                            <option value="all">ทั้งหมด (ทุกหมวดหมู่)</option>
+                            <option value="school">🏫 ผลงานโรงเรียน (School)</option>
+                            <option value="teacher">👩‍🏫 ผลงานคุณครู (Teacher)</option>
+                            <option value="student">🎓 ผลงานนักเรียน (Student)</option>
+                        </select>
+                    </div>
+                    <div class="w-full sm:w-52 text-left space-y-1">
+                        <span class="font-bold text-slate-600 block">📅 ปีการศึกษา</span>
+                        <select id="report-year-select" onchange="filterReportRows()" class="w-full text-xs px-3 py-2 rounded-xl border border-gray-200 outline-none focus:border-blue-500 bg-white">
+                            <option value="all">ทั้งหมด (ทุกปีการศึกษา)</option>
+                            <?php foreach($academic_years as $yr): ?>
+                                <option value="<?php echo $yr; ?>">ปีการศึกษา <?php echo $yr; ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="text-[11px] text-slate-400 pb-2">
+                        * ปรับตัวเลือกด้านบน ระบบจะคำนวณสถิติและตารางข้อมูลใหม่โดยอัตโนมัติ
+                    </div>
+                </div>
+
+                <!-- การ์ดตัวชี้วัด (Dashboard metrics for Report) -->
+                <div class="grid grid-cols-3 gap-4">
+                    <div class="bg-blue-50/60 p-4 rounded-2xl border border-blue-100">
+                        <span class="text-[10px] font-bold text-blue-900 block uppercase">จำนวนผลงานเชิงประจักษ์รวม</span>
+                        <strong id="report-total-cnt" class="text-2xl font-black text-blue-950 block mt-0.5"><?php echo $stat_total_approved; ?></strong>
+                    </div>
+                    <div class="bg-amber-50/60 p-4 rounded-2xl border border-amber-100">
+                        <span class="text-[10px] font-bold text-amber-800 block uppercase">รอการตรวจสอบสิทธิ์</span>
+                        <strong id="report-pending-cnt" class="text-2xl font-black text-amber-950 block mt-0.5"><?php echo $stat_pending; ?></strong>
+                    </div>
+                    <div class="bg-emerald-50/60 p-4 rounded-2xl border border-emerald-100">
+                        <span class="text-[10px] font-bold text-emerald-800 block uppercase">รายการที่ได้รับการยืนยัน</span>
+                        <strong id="report-approved-cnt" class="text-2xl font-black text-emerald-950 block mt-0.5"><?php echo $stat_total_approved; ?></strong>
+                    </div>
+                </div>
+
+                <!-- สรุปผลการประเมินระดับรางวัล -->
+                <div class="space-y-3">
+                    <h3 class="font-black text-xs text-slate-700">📊 ตารางสรุปสัดส่วนระดับผลงานเชิงคุณภาพเพื่อเขียนเล่มรายงาน SAR</h3>
                     
-                    <div class="text-xs text-slate-500 space-y-2">
-                        <p class="font-semibold text-blue-900">💡 วิธีการนำไปใช้งาน:</p>
-                        <ol class="list-decimal pl-5 space-y-1">
-                            <li>เปิดเว็บ <a href="https://script.google.com/" target="_blank" class="text-blue-600 underline">Google Apps Script</a> แล้วกด "โครงการใหม่" (New Project)</li>
-                            <li>คัดลอกโค้ดด้านล่างทั้งหมดไปใส่แทนที่โค้ดเดิมทั้งหมดในไฟล์โครงการ</li>
-                            <li>กดเซฟ แล้วเลือก <strong>"การใช้งานได้จริง" (Deploy) > "การจัดการการปรับใช้ใหม่" (New Deployment)</strong></li>
-                            <li>เลือกประเภทเป็น <strong>"เว็บแอป" (Web App)</strong></li>
-                            <li>ตั้งค่า: ผู้มีสิทธิ์เข้าถึง (Who has access) ให้เลือกเป็น <strong>"ทุกคน" (Anyone)</strong> เพื่ออนุญาตให้ฟอร์มส่งอัปโหลดได้</li>
-                            <li>กดปรับใช้ (Deploy) แล้วคัดลอก **URL เว็บแอป (Web App URL)** มาวางในช่องตั้งค่าด้านบนของเว็บนี้ได้เลย!</li>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs">
+                        <div class="border rounded-2xl p-4 bg-slate-50/20 space-y-2.5">
+                            <p class="font-extrabold text-slate-600 border-b pb-1.5">ระดับภายในจังหวัดและภูมิภาค</p>
+                            <div class="flex justify-between">
+                                <span>🏫 ระดับโรงเรียน / สถาบัน:</span>
+                                <strong id="cnt-lvl-school" class="font-black text-blue-900"><?php echo $levels_stats['โรงเรียน']; ?> รายการ</strong>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>🏫 ระดับกลุ่มโรงเรียน / ตำบล:</span>
+                                <strong id="cnt-lvl-group" class="font-black text-blue-900"><?php echo $levels_stats['กลุ่มโรงเรียน']; ?> รายการ</strong>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>🏅 ระดับเขตพื้นที่การศึกษา:</span>
+                                <strong id="cnt-lvl-area" class="font-black text-blue-900"><?php echo $levels_stats['เขตพื้นที่']; ?> รายการ</strong>
+                            </div>
+                        </div>
+
+                        <div class="border rounded-2xl p-4 bg-slate-50/20 space-y-2.5">
+                            <p class="font-extrabold text-slate-600 border-b pb-1.5">ระดับภูมิภาคและระดับชาติ</p>
+                            <div class="flex justify-between">
+                                <span>🎖️ ระดับจังหวัด:</span>
+                                <strong id="cnt-lvl-province" class="font-black text-blue-900"><?php echo $levels_stats['จังหวัด']; ?> รายการ</strong>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>🏆 ระดับภาค / ตรวจราชการ:</span>
+                                <strong id="cnt-lvl-region" class="font-black text-blue-900"><?php echo $levels_stats['ภาค']; ?> รายการ</strong>
+                            </div>
+                            <div class="flex justify-between">
+                                <span>👑 ระดับประเทศ / นานาชาติ:</span>
+                                <strong id="cnt-lvl-national" class="font-black text-blue-900"><?php echo $levels_stats['ประเทศ']; ?> รายการ</strong>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ตารางสรุปรายชิ้นงาน -->
+                <div class="space-y-3 pt-4">
+                    <h3 class="font-black text-xs text-slate-700">📑 ตารางแสดงรายละเอียดรายงานหลักฐานเชิงประจักษ์ (Portfolio List)</h3>
+                    <div class="overflow-x-auto border border-slate-150 rounded-2xl shadow-sm">
+                        <table class="w-full text-left border-collapse text-[11px] bg-white">
+                            <thead>
+                                <tr class="bg-blue-900 text-white font-extrabold">
+                                    <th class="p-3 border-r border-blue-800">หมวดหมู่</th>
+                                    <th class="p-3 border-r border-blue-800">ปีการศึกษา</th>
+                                    <th class="p-3 border-r border-blue-800">ชื่อผลงาน / รางวัลที่ได้รับ</th>
+                                    <th class="p-3 border-r border-blue-800">ระดับผลงาน</th>
+                                    <th class="p-3 border-r border-blue-800">ชื่อผู้มีส่วนรับผิดชอบ</th>
+                                    <th class="p-3 border-r border-blue-800">หน่วยงานมอบ</th>
+                                    <th class="p-3">ลิงก์หลักฐาน</th>
+                                </tr>
+                            </thead>
+                            <tbody id="report-table-body">
+                                <?php 
+                                    // โหลดผลงานทั้งหมดที่อนุมัติแล้วมาเตรียมพิมพ์ในตาราง
+                                    $all_approved_res = $conn->query("SELECT * FROM portfolios WHERE approved=1 ORDER BY academicYear DESC, createdAt DESC");
+                                    if ($all_approved_res && $all_approved_res->num_rows > 0):
+                                        while($r = $all_approved_res->fetch_assoc()):
+                                ?>
+                                    <tr class="report-row hover:bg-slate-50/50 border-b border-slate-100 transition-colors" 
+                                        data-category="<?php echo htmlspecialchars($r['category']); ?>"
+                                        data-year="<?php echo htmlspecialchars($r['academicYear']); ?>"
+                                        data-title="<?php echo htmlspecialchars($r['title']); ?>"
+                                        data-level="<?php echo htmlspecialchars($r['rewardLevel']); ?>"
+                                        data-owner="<?php echo htmlspecialchars($r['ownerName']); ?>"
+                                        data-giver="<?php echo htmlspecialchars($r['giver']); ?>"
+                                        data-date="<?php echo htmlspecialchars($r['awardDate']); ?>"
+                                        data-type="<?php echo htmlspecialchars($r['type']); ?>">
+                                        <td class="p-3 font-semibold border-r border-slate-100">
+                                            <?php 
+                                                if($r['category'] === 'school') echo 'ผลงานโรงเรียน';
+                                                elseif($r['category'] === 'teacher') echo 'ผลงานคุณครู';
+                                                else echo 'ผลงานนักเรียน';
+                                            ?>
+                                        </td>
+                                        <td class="p-3 border-r border-slate-100 font-bold"><?php echo htmlspecialchars($r['academicYear']); ?></td>
+                                        <td class="p-3 border-r border-slate-100 font-bold text-slate-800"><?php echo htmlspecialchars($r['title']); ?></td>
+                                        <td class="p-3 border-r border-slate-100 font-semibold text-blue-900"><?php echo htmlspecialchars($r['rewardLevel']); ?></td>
+                                        <td class="p-3 border-r border-slate-100 text-slate-700"><?php echo htmlspecialchars($r['ownerName']); ?></td>
+                                        <td class="p-3 border-r border-slate-100 text-slate-500"><?php echo htmlspecialchars($r['giver']); ?></td>
+                                        <td class="p-3 font-bold text-blue-600">
+                                            <?php if(!empty($r['attachmentUrl'])): ?>
+                                                <a href="<?php echo htmlspecialchars($r['attachmentUrl']); ?>" target="_blank" class="hover:underline">🔗 เปิดดูเอกสาร</a>
+                                            <?php else: ?>
+                                                <span class="text-slate-400 font-medium">ไม่มีไฟล์แนบ</span>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php 
+                                        endwhile;
+                                    else:
+                                ?>
+                                    <tr>
+                                        <td colspan="7" class="p-6 text-center text-slate-400">ไม่มีข้อมูลบันทึกในฐานข้อมูลในขณะนี้</td>
+                                    </tr>
+                                <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- สคริปต์กรองตารางรายงานสด (SAR Instant Client Filter) ด้วย Javascript ดึงข้อมูลรวดเร็วไม่ต้อง reload -->
+            <script>
+                function filterReportRows() {
+                    const cat = document.getElementById('report-cat-select').value;
+                    const year = document.getElementById('report-year-select').value;
+                    const rows = document.querySelectorAll('.report-row');
+                    
+                    let count_total = 0;
+                    let lvl_school = 0;
+                    let lvl_group = 0;
+                    let lvl_area = 0;
+                    let lvl_province = 0;
+                    let lvl_region = 0;
+                    let lvl_national = 0;
+
+                    rows.forEach(row => {
+                        const rowCat = row.getAttribute('data-category');
+                        const rowYr = row.getAttribute('data-year');
+                        const rowLvl = row.getAttribute('data-level');
+
+                        const catMatch = (cat === 'all' || rowCat === cat);
+                        const yrMatch = (year === 'all' || rowYr === year);
+
+                        if (catMatch && yrMatch) {
+                            row.style.display = '';
+                            count_total++;
+
+                            // คำนวณสถิติ
+                            if (rowLvl === 'โรงเรียน') lvl_school++;
+                            else if (rowLvl === 'กลุ่มโรงเรียน') lvl_group++;
+                            else if (rowLvl === 'เขตพื้นที่') lvl_area++;
+                            else if (rowLvl === 'จังหวัด') lvl_province++;
+                            else if (rowLvl === 'ภาค') lvl_region++;
+                            else if (rowLvl === 'ประเทศ') lvl_national++;
+                        } else {
+                            row.style.display = 'none';
+                        }
+                    });
+
+                    // อัปเดตยอดตัวเลขหน้าจอแบบ Realtime
+                    document.getElementById('report-total-cnt').innerText = count_total;
+                    document.getElementById('report-approved-cnt').innerText = count_total;
+                    
+                    document.getElementById('cnt-lvl-school').innerText = lvl_school + " รายการ";
+                    document.getElementById('cnt-lvl-group').innerText = lvl_group + " รายการ";
+                    document.getElementById('cnt-lvl-area').innerText = lvl_area + " รายการ";
+                    document.getElementById('cnt-lvl-province').innerText = lvl_province + " รายการ";
+                    document.getElementById('cnt-lvl-region').innerText = lvl_region + " รายการ";
+                    document.getElementById('cnt-lvl-national').innerText = lvl_national + " รายการ";
+                }
+
+                // สคริปต์ส่งออกเป็นไฟล์ CSV รองรับภาษาไทยใน Microsoft Excel สมบูรณ์แบบ
+                function exportReportsToCSV() {
+                    const cat = document.getElementById('report-cat-select').value;
+                    const year = document.getElementById('report-year-select').value;
+                    const rows = document.querySelectorAll('.report-row');
+
+                    const headers = [
+                        'หมวดหมู่', 'ปีการศึกษา', 'ชื่อผลงาน/รางวัล', 
+                        'ระดับรางวัล', 'ชื่อผู้รับผลงาน', 'หน่วยงานมอบ', 'วันที่ได้รับ', 'ประเภทรางวัล'
+                    ];
+
+                    const csvRows = [];
+                    csvRows.push(headers.join(','));
+
+                    rows.forEach(row => {
+                        if (row.style.display !== 'none') {
+                            const rowCat = row.getAttribute('data-category') === 'school' ? 'ผลงานโรงเรียน' : row.getAttribute('data-category') === 'teacher' ? 'ผลงานคุณครู' : 'ผลงานนักเรียน';
+                            const rowYr = row.getAttribute('data-year');
+                            const rowTitle = `"${row.getAttribute('data-title').replace(/"/g, '""')}"`;
+                            const rowLvl = row.getAttribute('data-level');
+                            const rowOwner = `"${row.getAttribute('data-owner').replace(/"/g, '""')}"`;
+                            const rowGiver = `"${row.getAttribute('data-giver').replace(/"/g, '""')}"`;
+                            const rowDate = row.getAttribute('data-date');
+                            const rowType = `"${row.getAttribute('data-type').replace(/"/g, '""')}"`;
+
+                            csvRows.push([rowCat, rowYr, rowTitle, rowLvl, rowOwner, rowGiver, rowDate, rowType].join(','));
+                        }
+                    });
+
+                    // เติม UTF-8 BOM (\uFEFF) ป้องกันไม่ให้ภาษาไทยเพี้ยนใน MS Excel
+                    const csvContent = '\uFEFF' + csvRows.join('\n');
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const url = URL.createObjectURL(blob);
+                    
+                    const link = document.createElement('a');
+                    link.setAttribute('href', url);
+                    link.setAttribute('download', `รายงาน_คลังผลงาน_โรงเรียนบ้านหนองหว้า_คัดกรอง_หมวดหมู่_${cat}_ปี_${year}.csv`);
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                }
+            </script>
+
+        <!-- ==============================================
+             CASE 4: หน้าการตั้งค่าและคัดลอกรหัสเชื่อมต่อ (SETUP TAB)
+             ============================================== -->
+        <?php elseif ($active_tab === 'setup' && isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin'): ?>
+            <section class="bg-white p-8 rounded-3xl shadow-sm border border-slate-100 text-left space-y-6">
+                <div class="border-b border-slate-100 pb-3">
+                    <h2 class="text-xl font-black text-slate-800">⚙️ จัดการระบบหลังบ้าน & การตั้งค่า Google Drive เชื่อมโยง</h2>
+                    <p class="text-xs text-slate-400">สำหรับผู้ดูแลระบบสูงสุด (Admin) เท่านั้นในการกำหนดคุณสมบัติการส่งไฟล์ตรงไปยังเซิร์ฟเวอร์คลาวด์</p>
+                </div>
+
+                <form method="POST" class="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs font-bold text-slate-700">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block mb-1">🏫 ชื่อสถาบัน / โรงเรียน</label>
+                            <input type="text" name="school_name" value="<?php echo htmlspecialchars($school_name); ?>" required class="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-slate-50/50 text-xs font-medium text-slate-800">
+                        </div>
+                        <div>
+                            <label class="block mb-1">🎨 ลิงก์ที่อยู่ไฟล์โลโก้โรงเรียน (School Logo URL)</label>
+                            <input type="url" name="school_logo" value="<?php echo htmlspecialchars($school_logo); ?>" placeholder="เช่น https://example.com/logo.png" class="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-slate-50/50 text-xs font-medium text-slate-800">
+                            <p class="text-[9px] text-slate-400 font-medium mt-1">💡 ใส่ลิงก์ URL ตราสัญลักษณ์โรงเรียนของคุณ เพื่อปรับแต่งแสดงผลแถบด้านบนสุด</p>
+                        </div>
+                    </div>
+
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block mb-1">📁 รหัสโฟลเดอร์เก็บไฟล์บน Google Drive (Folder ID)</label>
+                            <input type="text" name="google_drive_folder_id" value="<?php echo htmlspecialchars($google_drive_folder_id); ?>" placeholder="ป้อน ID เช่น 1aBcD-eFgHiJkLm..." class="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-slate-50/50 text-xs font-medium text-slate-800">
+                            <p class="text-[9px] text-slate-400 font-medium mt-1">💡 คัดลอกจากส่วนท้ายสุดของ URL โฟลเดอร์ใน Google Drive ของท่านที่ได้แชร์เป็น 'ทุกคนที่มีลิงก์มีสิทธิ์อ่าน'</p>
+                        </div>
+                        <div>
+                            <label class="block mb-1">⚡ ลิงก์ระบบส่งข้อมูล Google Apps Script Web App URL</label>
+                            <input type="url" name="google_apps_script_url" value="<?php echo htmlspecialchars($google_apps_script_url); ?>" placeholder="เช่น https://script.google.com/macros/s/.../exec" class="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-slate-50/50 text-xs font-medium text-slate-800">
+                            <p class="text-[9px] text-slate-400 font-medium mt-1">💡 ลิงก์เว็บแอปที่ได้จากการกดปรับใช้ (Deploy) ตัวสคริปต์ Google Apps Script</p>
+                        </div>
+                    </div>
+
+                    <div class="md:col-span-2 pt-4 border-t border-slate-100 flex flex-col md:flex-row gap-4 items-center justify-between">
+                        <div class="text-[10px] text-slate-400 font-medium">
+                            * ตรวจสอบความถูกต้องของลิงก์ระบบสคริปต์ทุกครั้งก่อนบันทึกค่าเพื่อให้การอัปโหลดทำงานได้ไร้รอยต่อ
+                        </div>
+                        <button type="submit" name="save_settings" class="px-6 py-3 bg-blue-900 hover:bg-blue-800 text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer transition-all">
+                            💾 บันทึกสัญญาสิทธิ์และการตั้งค่า
+                        </button>
+                    </div>
+                </form>
+
+                <!-- คู่มือการคัดลอกโค้ด Google Apps Script ไปใช้งานจริง -->
+                <div class="pt-6 border-t border-slate-100 space-y-4">
+                    <div>
+                        <h3 class="font-black text-sm text-slate-800 flex items-center gap-2">
+                            <span>📋</span>
+                            <span>โค้ดและวิธีติดตั้ง Google Apps Script สำหรับผู้ดูแลระบบ</span>
+                        </h3>
+                        <p class="text-xs text-slate-400">ทำตามขั้นตอนต่อไปนี้เพื่อเชื่อมต่อระบบจัดเก็บเอกสารและไฟล์ภาพเข้ากับ Google Drive ของโรงเรียนแบบถาวร</p>
+                    </div>
+
+                    <div class="text-xs text-slate-600 bg-blue-50/30 border border-blue-100/50 p-5 rounded-2xl space-y-2.5">
+                        <p class="font-bold text-blue-900 text-sm">💡 ขั้นตอนการเชื่อมต่อและคัดลอกโค้ดใช้งาน:</p>
+                        <ol class="list-decimal pl-5 space-y-1.5 leading-relaxed">
+                            <li>ล็อกอินเข้าไปที่บัญชี Google Drive ของโรงเรียน และสร้างโฟลเดอร์สำหรับเก็บผลงาน ครู/นักเรียน พร้อมคัดลอก Folder ID มาใส่ด้านบน</li>
+                            <li>เข้าเว็บไซต์ <a href="https://script.google.com/" target="_blank" class="text-blue-600 underline font-extrabold">Google Apps Script Dashboard</a> แล้วกดปุ่ม <strong>"โครงการใหม่" (New Project)</strong></li>
+                            <li>ล้างข้อมูลโค้ดชุดเดิมออกให้หมด แล้วคัดลอกโค้ดในกล่องด้านล่างนี้ไปวางแทนที่ทั้งหมด</li>
+                            <li>กดเซฟโครงการ แล้วคลิกปุ่ม <strong>"การปรับใช้" (Deploy) > "การปรับใช้ใหม่" (New Deployment)</strong> ทางด้านบน</li>
+                            <li>คลิกรูปฟันเฟือง เลือกประเภทเป็น <strong>"เว็บแอป" (Web App)</strong></li>
+                            <li>ตั้งค่า: กำหนดช่อง "ผู้ดูแลและควบคุมสิทธิ์เว็บแอป" เป็นชื่อคุณเอง และกำหนดช่อง "ผู้มีสิทธิ์เข้าใช้งาน" ให้เป็น <strong>"ทุกคน" (Anyone)</strong></li>
+                            <li>กด "ปรับใช้" (Deploy) และอนุมัติสิทธิ์ความปลอดภัย (Authorize) จากนั้นคัดลอกลิงก์ <strong>"URL เว็บแอป" (Web App URL)</strong> มาป้อนในฟอร์มการตั้งค่าด้านบน เป็นอันเสร็จสิ้น!</li>
                         </ol>
                     </div>
 
-                    <div class="flex-1 overflow-y-auto bg-slate-900 text-slate-200 p-4 rounded-xl font-mono text-[11px] leading-relaxed relative">
-                        <pre id="gasCodeText" class="whitespace-pre-wrap select-all">function doPost(e) {
+                    <div class="space-y-2">
+                        <div class="flex justify-between items-center">
+                            <span class="text-xs font-extrabold text-slate-600">📦 รหัสคำสั่งโค้ด Google Apps Script (GS)</span>
+                            <button onclick="copyGasScriptCode()" class="px-3 py-1.5 bg-blue-100 hover:bg-blue-200 text-blue-900 text-[10px] font-extrabold rounded-lg cursor-pointer transition-all">
+                                📋 คัดลอกโค้ดทั้งหมด
+                            </button>
+                        </div>
+                        <div class="overflow-x-auto bg-slate-900 text-slate-200 p-5 rounded-2xl font-mono text-[11px] leading-relaxed relative max-h-[350px]">
+                            <pre id="gasCodeText" class="whitespace-pre text-left">function doPost(e) {
   try {
     var data = JSON.parse(e.postData.contents);
     var base64Data = data.file;
     var fileName = data.filename;
-    var folderId = data.folderId; // โฟลเดอร์ปลายทาง
+    var folderId = data.folderId; // รหัสโฟลเดอร์ปลายทางที่ใช้จัดเก็บ
     
     var decoded = Utilities.base64Decode(base64Data);
     var blob = Utilities.newBlob(decoded, data.mimeType, fileName);
@@ -305,187 +1119,36 @@ if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') {
     })).setMimeType(ContentService.MimeType.JSON);
   }
 }</pre>
-                    </div>
-                    
-                    <div class="flex justify-end gap-2 pt-2 border-t">
-                        <button onclick="navigator.clipboard.writeText(document.getElementById(&#39;gasCodeText&#39;).innerText); alert(&#39;คัดลอกโค้ดเรียบร้อยแล้ว!&#39;);" class="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white text-xs font-bold rounded-lg cursor-pointer">
-                            📋 คัดลอกโค้ดไปยังคลิปบอร์ด
-                        </button>
-                        <button onclick="document.getElementById(&#39;gas-script-modal&#39;).classList.add(&#39;hidden&#39;)" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-slate-700 text-xs font-bold rounded-lg cursor-pointer">
-                            ปิดหน้าต่าง
-                        </button>
+                        </div>
                     </div>
                 </div>
-            </div>
+            </section>
+
+            <script>
+                function copyGasScriptCode() {
+                    const code = document.getElementById('gasCodeText').innerText;
+                    navigator.clipboard.writeText(code).then(() => {
+                        alert('คัดลอกรหัสคำสั่ง Google Apps Script เรียบร้อยแล้ว! นำไปวางใน Google Script ได้ทันที');
+                    }).catch(err => {
+                        alert('ไม่สามารถคัดลอกได้อัตโนมัติ กรุณาลากคลุมโค้ดแล้วกดปุ่มคัดลอก');
+                    });
+                }
+            </script>
         <?php endif; ?>
 
-        <!-- แผงสถิติสวยงาม (Dashboard Panels) ในรูปแบบ Responsive (1-4 คอลัมน์) -->
-        <section class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-150/80 flex items-center justify-between transition-all hover:shadow-md">
-                <div>
-                    <span class="text-xs text-gray-500 font-bold block">🏫 ผลงานสถานศึกษา</span>
-                    <strong class="text-2xl font-black text-blue-900 mt-1 block"><?php echo $stat_school; ?></strong>
-                </div>
-                <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-900 flex items-center justify-center text-lg font-bold">🏫</div>
-            </div>
-            
-            <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-150/80 flex items-center justify-between transition-all hover:shadow-md">
-                <div>
-                    <span class="text-xs text-gray-500 font-bold block">👩‍🏫 ผลงานคุณครู</span>
-                    <strong class="text-2xl font-black text-amber-600 mt-1 block"><?php echo $stat_teacher; ?></strong>
-                </div>
-                <div class="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-lg font-bold">👩‍🏫</div>
-            </div>
-
-            <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-150/80 flex items-center justify-between transition-all hover:shadow-md">
-                <div>
-                    <span class="text-xs text-gray-500 font-bold block">🎓 ผลงานนักเรียน</span>
-                    <strong class="text-2xl font-black text-emerald-600 mt-1 block"><?php echo $stat_student; ?></strong>
-                </div>
-                <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-lg font-bold">🎓</div>
-            </div>
-
-            <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-150/80 flex items-center justify-between transition-all hover:shadow-md">
-                <div>
-                    <span class="text-xs text-gray-500 font-bold block">⏳ รายการรออนุมัติ</span>
-                    <strong class="text-2xl font-black text-rose-600 mt-1 block"><?php echo $stat_pending; ?></strong>
-                </div>
-                <div class="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center text-lg font-bold">⏳</div>
-            </div>
-        </section>
-
-        <!-- แผงกรองข้อมูล (Filters) และช่องค้นหาที่มีความสวยงาม ใช้งานง่ายทั้งแท็บเล็ตและโทรศัพท์มือถือ -->
-        <section class="bg-white p-6 rounded-3xl shadow-sm border border-gray-150">
-            <form method="GET" class="flex flex-col md:flex-row gap-4 items-end">
-                <div class="flex-1 w-full text-left">
-                    <label class="text-xs font-bold text-gray-600 block mb-1.5">🔍 ค้นหาผลงาน</label>
-                    <input type="text" name="search" value="<?php echo htmlspecialchars($search_query); ?>" placeholder="พิมพ์คำสำคัญ เช่น ชื่อรางวัล, ผู้จัดทำ, หน่วยงาน..." class="w-full text-xs px-4 py-3 rounded-xl border border-gray-200 outline-none focus:border-blue-500 transition-all bg-slate-50/50">
-                </div>
-                
-                <div class="w-full md:w-52 text-left">
-                    <label class="text-xs font-bold text-gray-600 block mb-1.5">📂 หมวดหมู่ผลงาน</label>
-                    <select name="category" class="w-full text-xs px-4 py-3 rounded-xl border border-gray-200 outline-none focus:border-blue-500 bg-white">
-                        <option value="">ทั้งหมด</option>
-                        <option value="school" <?php if($category_filter == 'school') echo 'selected'; ?>>ผลงานโรงเรียน (School)</option>
-                        <option value="teacher" <?php if($category_filter == 'teacher') echo 'selected'; ?>>ผลงานคุณครู (Teacher)</option>
-                        <option value="student" <?php if($category_filter == 'student') echo 'selected'; ?>>ผลงานนักเรียน (Student)</option>
-                    </select>
-                </div>
-
-                <div class="w-full md:w-44 text-left">
-                    <label class="text-xs font-bold text-gray-600 block mb-1.5">📅 ปีการศึกษา</label>
-                    <select name="year" class="w-full text-xs px-4 py-3 rounded-xl border border-gray-200 outline-none focus:border-blue-500 bg-white">
-                        <option value="">ทั้งหมด</option>
-                        <?php while($y_row = $years_result->fetch_assoc()): ?>
-                            <option value="<?php echo $y_row['academicYear']; ?>" <?php if($year_filter == $y_row['academicYear']) echo 'selected'; ?>>
-                                ปีการศึกษา <?php echo $y_row['academicYear']; ?>
-                            </option>
-                        <?php endwhile; ?>
-                    </select>
-                </div>
-
-                <div class="flex gap-2 w-full md:w-auto">
-                    <button type="submit" class="flex-1 md:flex-none px-6 py-3 bg-blue-900 hover:bg-blue-800 text-white font-extrabold text-xs rounded-xl shadow cursor-pointer transition-all">
-                        ค้นหาด่วน
-                    </button>
-                    <a href="index.php" class="px-5 py-3 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-bold rounded-xl text-center transition-all">
-                        ล้างค่า
-                    </a>
-                </div>
-            </form>
-        </section>
-
-        <!-- รายการคลังสะสมผลงานการประเมินสถานศึกษาและคุณครู -->
-        <section class="space-y-4">
-            <div class="flex justify-between items-center px-1">
-                <div>
-                    <h2 class="text-sm font-extrabold text-gray-800 uppercase tracking-wider">รายการคลังผลงานเชิงประจักษ์</h2>
-                    <p class="text-[10px] text-gray-400">พบทัังหมด <?php echo $result->num_rows; ?> ผลงานที่ผ่านการคัดสรร</p>
-                </div>
-                <?php if (isset($_SESSION['user_id'])): ?>
-                    <a href="add_portfolio.php" class="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white text-xs font-bold rounded-xl shadow-lg flex items-center gap-1.5 transition-all">
-                        <span>➕ บันทึกผลงานใหม่</span>
-                    </a>
-                <?php endif; ?>
-            </div>
-
-            <?php if ($result->num_rows == 0): ?>
-                <div class="bg-white p-12 text-center rounded-3xl border border-gray-150 shadow-sm space-y-2">
-                    <span class="text-4xl block">📂</span>
-                    <p class="text-sm font-bold text-gray-500">ไม่พบรายการผลงานในระบบคลังสะสมดิจิทัลขณะนี้</p>
-                    <p class="text-xs text-gray-400">กรุณาปรับปรุงตัวกรองหรือเข้าสู่ระบบเพื่อบันทึกผลงานใหม่</p>
-                </div>
-            <?php else: ?>
-                <!-- แสดงผลแบบบอร์ดสไตล์ Card สวยงาม (Responsive 1 คอลัมน์บนมือถือ, 2 คอลัมน์บนแท็บเล็ต/คอมพิวเตอร์) -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <?php while($row = $result->fetch_assoc()): ?>
-                        <div class="bg-white p-6 rounded-2xl border border-gray-150/80 shadow-sm flex flex-col justify-between hover:shadow-md transition-all <?php if(!$row['approved']) echo 'border-amber-300 bg-amber-50/20'; ?>">
-                            <div class="space-y-3.5 text-left">
-                                <div class="flex justify-between items-start gap-2">
-                                    <span class="text-[9px] font-extrabold px-3 py-1 rounded-full uppercase tracking-wider <?php 
-                                        if($row['category'] == 'school') echo 'bg-blue-50 text-blue-900';
-                                        elseif($row['category'] == 'teacher') echo 'bg-amber-50 text-amber-700';
-                                        else echo 'bg-emerald-50 text-emerald-700';
-                                    ?>">
-                                        <?php 
-                                            if($row['category'] == 'school') echo '🏫 ผลงานสถานศึกษา';
-                                            elseif($row['category'] == 'teacher') echo '👩‍🏫 ผลงานครู';
-                                            else echo '🎓 ผลงานนักเรียน';
-                                        ?>
-                                    </span>
-                                    <span class="text-[10px] font-bold text-gray-400">ปีการศึกษา <?php echo htmlspecialchars($row['academicYear']); ?></span>
-                                </div>
-
-                                <h3 class="font-extrabold text-sm text-gray-800 leading-snug"><?php echo htmlspecialchars($row['title']); ?></h3>
-                                <p class="text-xs text-gray-500 line-clamp-3 leading-relaxed"><?php echo htmlspecialchars($row['description']); ?></p>
-
-                                <div class="pt-3 border-t border-gray-100 space-y-1.5 text-xs text-gray-600 bg-slate-50/50 p-3 rounded-xl">
-                                    <p class="flex items-center gap-1.5">
-                                        <span>🏅</span>
-                                        <span class="font-semibold text-gray-700">รางวัล/ประเภท:</span> 
-                                        <span class="text-blue-900 font-bold"><?php echo htmlspecialchars($row['type']); ?> (<?php echo htmlspecialchars($row['rewardLevel']); ?>)</span>
-                                    </p>
-                                    <p class="flex items-center gap-1.5">
-                                        <span>👤</span>
-                                        <span class="font-semibold text-gray-700">ผู้รับรางวัล:</span> 
-                                        <strong class="text-gray-800"><?php echo htmlspecialchars($row['ownerName']); ?></strong>
-                                    </p>
-                                    <p class="flex items-center gap-1.5">
-                                        <span>🏢</span>
-                                        <span class="font-semibold text-gray-700">หน่วยงานผู้มอบ:</span> 
-                                        <span class="text-gray-500 font-medium"><?php echo htmlspecialchars($row['giver']); ?></span>
-                                    </p>
-                                </div>
-                            </div>
-
-                            <div class="mt-5 pt-4 border-t border-gray-100 flex justify-between items-center">
-                                <span class="text-[9px] font-semibold text-gray-400">บันทึกเมื่อ: <?php echo substr($row['createdAt'], 0, 10); ?></span>
-                                
-                                <div class="flex items-center gap-2">
-                                    <?php if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin'): ?>
-                                        <?php if (!$row['approved']): ?>
-                                            <a href="index.php?approve_id=<?php echo $row['id']; ?>" class="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[10px] px-3.5 py-1.5 rounded-lg shadow-sm transition-all cursor-pointer">
-                                                ✅ อนุมัติเผยแพร่
-                                            </a>
-                                        <?php endif; ?>
-                                        <a href="index.php?delete_id=<?php echo $row['id']; ?>" onclick="return confirm('ยืนยันความต้องการลบผลงานชิ้นนี้ออกจากคลังหรือไม่?')" class="bg-rose-50 hover:bg-rose-100 text-rose-600 font-extrabold text-[10px] px-3.5 py-1.5 rounded-lg transition-all cursor-pointer">
-                                            🗑️ ลบ
-                                        </a>
-                                    <?php endif; ?>
-                                </div>
-                            </div>
-                        </div>
-                    <?php endwhile; ?>
-                </div>
-            <?php endif; ?>
-        </section>
     </main>
 
-    <!-- Footer ส่วนล่างสุดของเว็บไซต์โรงเรียน -->
-    <footer class="bg-slate-900 text-slate-400 text-xs py-8 mt-12 border-t border-slate-800 text-center print:hidden">
-        <p class="font-bold text-slate-200">ระบบประกันคุณภาพและคลังสะสมผลงานดิจิทัล โรงเรียนบ้านหนองหว้า</p>
-        <p class="mt-2 text-[11px] text-slate-500">สำนักงานเขตพื้นที่การศึกษาประถมศึกษาประจวบคีรีขันธ์ เขต 1</p>
-        <p class="mt-4 text-[10px] text-slate-600">© 2026 Ban Nong Wa School. All Rights Reserved. • ขับเคลื่อนด้วยระบบ PHP 8.0 & MySQL ฐานข้อมูลโรงเรียน</p>
+    <!-- ส่วนท้ายด้านล่างสุดของระบบคลังสารสนเทศ (Footer) ที่สวยงามสมบูรณ์แบบ -->
+    <footer class="bg-slate-900 text-slate-400 text-xs py-8 mt-12 border-t border-slate-800 text-center print-hidden">
+        <div class="max-w-7xl mx-auto px-4 space-y-3">
+            <p class="font-bold text-slate-200 text-sm">ระบบประกันคุณภาพและคลังหลักฐานเชิงประจักษ์ดิจิทัล</p>
+            <p class="text-[11px] text-slate-500"><?php echo htmlspecialchars($school_name); ?> • สังกัดสำนักงานคณะกรรมการการศึกษาขั้นพื้นฐาน</p>
+            <div class="pt-4 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between text-[10px] text-slate-600 gap-2">
+                <p>© 2026 Ban Nong Wa School. All Rights Reserved. • ระบบประสานงานคลังข้อมูลอัตโนมัติบน Google Apps Script</p>
+                <p>ขับเคลื่อนรวดเร็วด้วยสถาปัตยกรรม PHP 8.0 & MySQL ฐานข้อมูลโรงเรียน</p>
+            </div>
+        </div>
     </footer>
+
 </body>
 </html>

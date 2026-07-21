@@ -30,7 +30,13 @@ if (isset($_POST['submit'])) {
     $attachment_url = isset($_POST['attachment_url']) ? $conn->real_escape_string($_POST['attachment_url']) : '';
     $attachments_json = '[]';
     if (!empty($attachment_url)) {
-        $attachments_json = json_encode([['name' => 'หลักฐานอ้างอิง Google Drive', 'url' => $attachment_url]], JSON_UNESCAPED_UNICODE);
+        $is_img = false;
+        $url_lower = strtolower($attachment_url);
+        if (str_contains($url_lower, '.jpg') || str_contains($url_lower, '.jpeg') || str_contains($url_lower, '.png') || str_contains($url_lower, '.gif') || str_contains($url_lower, '.webp') || str_contains($url_lower, 'image') || str_contains($url_lower, 'unsplash.com') || str_contains($url_lower, 'drive.google.com/uc') || str_contains($url_lower, 'lh3.googleusercontent.com')) {
+            $is_img = true;
+        }
+        $type = $is_img ? 'image/jpeg' : 'application/pdf';
+        $attachments_json = json_encode([['name' => 'หลักฐานภาพเกียรติบัตร/การรับรางวัล', 'url' => $attachment_url, 'type' => $type]], JSON_UNESCAPED_UNICODE);
         $attachments_json = $conn->real_escape_string($attachments_json);
     }
     

@@ -3,7 +3,6 @@ import Header from './components/Header';
 import Dashboard from './components/Dashboard';
 import PortfolioList from './components/PortfolioList';
 import PortfolioForm from './components/PortfolioForm';
-import ReportPanel from './components/ReportPanel';
 import SetupGuide from './components/SetupGuide';
 import Login from './components/Login';
 import { 
@@ -228,8 +227,7 @@ export default function App() {
             onSuccess={(msg) => triggerNotification(msg, 'success')}
           />
         );
-      case 'reports':
-        return <ReportPanel items={items} />;
+
       case 'setup':
         return (
           <SetupGuide

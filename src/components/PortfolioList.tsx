@@ -101,10 +101,43 @@ export default function PortfolioList({
     }
   };
 
+  const getDirectGoogleDriveUrl = (url: string) => {
+    if (url.includes('drive.google.com')) {
+      let fileId = '';
+      const match1 = url.match(/\/file\/d\/([a-zA-Z0-9-_]+)/);
+      const match2 = url.match(/id=([a-zA-Z0-9-_]+)/);
+      if (match1 && match1[1]) {
+        fileId = match1[1];
+      } else if (match2 && match2[1]) {
+        fileId = match2[1];
+      }
+      if (fileId) {
+        return `https://drive.google.com/uc?export=view&id=${fileId}`;
+      }
+    }
+    return url;
+  };
+
   const getCoverImage = (item: PortfolioItem) => {
     // ดึงไฟล์รูปแรกที่มี
-    const imgAttach = item.attachments.find(a => a.type.startsWith('image/'));
-    if (imgAttach) return imgAttach.url;
+    const imgAttach = item.attachments.find(a => {
+      const typeLower = (a.type || '').toLowerCase();
+      const nameLower = (a.name || '').toLowerCase();
+      const urlLower = (a.url || '').toLowerCase();
+      return (
+        typeLower.startsWith('image/') ||
+        nameLower.endsWith('.jpg') ||
+        nameLower.endsWith('.jpeg') ||
+        nameLower.endsWith('.png') ||
+        nameLower.endsWith('.gif') ||
+        nameLower.endsWith('.webp') ||
+        urlLower.includes('.jpg') ||
+        urlLower.includes('.jpeg') ||
+        urlLower.includes('.png') ||
+        urlLower.includes('.webp')
+      );
+    });
+    if (imgAttach) return getDirectGoogleDriveUrl(imgAttach.url);
 
     // Default Images จาก Unsplash ที่สวยงามแยกตามประเภท
     if (item.category === 'school') {
