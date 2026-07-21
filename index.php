@@ -13,6 +13,8 @@ $school_name = get_setting($conn, 'school_name', 'โรงเรียนบ้
 $school_logo = get_setting($conn, 'school_logo', '');
 $google_drive_folder_id = get_setting($conn, 'google_drive_folder_id', '');
 $google_apps_script_url = get_setting($conn, 'google_apps_script_url', '');
+$header_title = get_setting($conn, 'header_title', 'ระบบคลังผลงานและหลักฐานเชิงประจักษ์');
+$header_subtitle = get_setting($conn, 'header_subtitle', 'เพื่อการประกันคุณภาพและการประเมินสถานศึกษา');
 
 // ดึงปีการศึกษาเพื่อทำตัวกรอง (บันทึกไว้ในอาร์เรย์เพื่อป้องกัน pointer หมดอายุจากการคิวรีหลายครั้ง)
 $years_query = "SELECT DISTINCT academicYear FROM portfolios ORDER BY academicYear DESC";
@@ -79,6 +81,8 @@ if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') {
     if (isset($_POST['save_branding_settings'])) {
         $school_name = $_POST['school_name'];
         $school_logo = $_POST['school_logo']; // หากป้อนเป็น URL เดิม
+        $header_title = isset($_POST['header_title']) ? $_POST['header_title'] : 'ระบบคลังผลงานและหลักฐานเชิงประจักษ์';
+        $header_subtitle = isset($_POST['header_subtitle']) ? $_POST['header_subtitle'] : 'เพื่อการประกันคุณภาพและการประเมินสถานศึกษา';
 
         if (isset($_FILES['school_logo_file']) && $_FILES['school_logo_file']['error'] === UPLOAD_ERR_OK) {
             $uploaded_logo = save_uploaded_image('school_logo_file', 'school_logo');
@@ -89,6 +93,8 @@ if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') {
 
         set_setting($conn, 'school_name', $school_name);
         set_setting($conn, 'school_logo', $school_logo);
+        set_setting($conn, 'header_title', $header_title);
+        set_setting($conn, 'header_subtitle', $header_subtitle);
 
         header("Location: index.php?tab=setup&subtab=branding&msg=settings_updated");
         exit;
@@ -283,14 +289,14 @@ $latest_res = $conn->query("SELECT * FROM portfolios WHERE approved=1 ORDER BY c
 
                     <div>
                         <h1 class="text-xl md:text-2xl font-bold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-amber-200 to-white">
-                            ระบบคลังผลงานและหลักฐานเชิงประจักษ์
+                            <?php echo htmlspecialchars($header_title); ?>
                         </h1>
                         <div class="flex items-center gap-2 mt-0.5 justify-center md:justify-start">
                             <span class="text-xs font-semibold bg-amber-500 text-blue-950 px-2 py-0.5 rounded-full uppercase tracking-wider">
                                 <?php echo htmlspecialchars($school_name); ?>
                             </span>
                             <span class="text-xs text-blue-200 hidden sm:inline">
-                                | เพื่อการประกันคุณภาพและการประเมินสถานศึกษา
+                                | <?php echo htmlspecialchars($header_subtitle); ?>
                             </span>
                         </div>
                     </div>
@@ -1342,6 +1348,16 @@ $latest_res = $conn->query("SELECT * FROM portfolios WHERE approved=1 ORDER BY c
                                 <div>
                                     <label class="block mb-1">🏫 ชื่อสถาบัน / โรงเรียน</label>
                                     <input type="text" name="school_name" value="<?php echo htmlspecialchars($school_name); ?>" required class="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-slate-50/50 text-xs font-medium text-slate-800">
+                                </div>
+                                <div>
+                                    <label class="block mb-1">📝 ข้อความหัวข้อหลักบนเฮดเดอร์เว็บ (Header Title)</label>
+                                    <input type="text" name="header_title" value="<?php echo htmlspecialchars($header_title); ?>" required placeholder="เช่น ระบบคลังผลงานและหลักฐานเชิงประจักษ์" class="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-slate-50/50 text-xs font-medium text-slate-800">
+                                    <p class="text-[9px] text-slate-400 font-medium mt-1">💡 กำหนดข้อความส่วนหัวบนสุดของระบบ (ด้านบนชื่อโรงเรียน)</p>
+                                </div>
+                                <div>
+                                    <label class="block mb-1">💬 ข้อความคำอธิบายย่อยบนเฮดเดอร์เว็บ (Header Subtitle)</label>
+                                    <input type="text" name="header_subtitle" value="<?php echo htmlspecialchars($header_subtitle); ?>" required placeholder="เช่น เพื่อการประกันคุณภาพและการประเมินสถานศึกษา" class="w-full px-4 py-3 rounded-xl border border-slate-200 outline-none focus:border-blue-500 bg-slate-50/50 text-xs font-medium text-slate-800">
+                                    <p class="text-[9px] text-slate-400 font-medium mt-1">💡 กำหนดข้อความเสริมที่จะแสดงอยู่ถัดจากป้ายชื่อโรงเรียนของท่าน</p>
                                 </div>
                                 <div>
                                     <label class="block mb-1">🔗 ที่อยู่ไฟล์ลิงก์โลโก้โรงเรียน (School Logo URL)</label>
