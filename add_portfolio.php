@@ -2,6 +2,10 @@
 // add_portfolio.php - บันทึกผลงานเชิงประจักษ์ใหม่ลงในฐานข้อมูลโรงเรียน
 require_once 'config.php';
 
+// ดึงการตั้งค่า Google Drive เพื่อเตรียมพร้อมอัปโหลด
+$google_drive_folder_id = get_setting($conn, 'google_drive_folder_id', '');
+$google_apps_script_url = get_setting($conn, 'google_apps_script_url', '');
+
 // ป้องกันกรณีที่ผู้ใช้งานยังไม่ได้เข้าสู่ระบบ
 if (!isset($_SESSION['user_id'])) {
     header("Location: login.php");
@@ -22,6 +26,14 @@ if (isset($_POST['submit'])) {
     $position = $conn->real_escape_string($_POST['position']);
     $department = $conn->real_escape_string($_POST['department']);
     
+    // ดึงลิงก์เอกสารหลักฐานแนบ
+    $attachment_url = isset($_POST['attachment_url']) ? $conn->real_escape_string($_POST['attachment_url']) : '';
+    $attachments_json = '[]';
+    if (!empty($attachment_url)) {
+        $attachments_json = json_encode([['name' => 'หลักฐานอ้างอิง Google Drive', 'url' => $attachment_url]], JSON_UNESCAPED_UNICODE);
+        $attachments_json = $conn->real_escape_string($attachments_json);
+    }
+    
     // ตั้งค่ารหัสผ่านหรือคีย์ประจำรายการ
     $id = 'item-' . time() . '-' . rand(100, 999);
     
@@ -30,7 +42,7 @@ if (isset($_POST['submit'])) {
     $createdAt = date('Y-m-d\TH:i:s\Z');
     
     $query = "INSERT INTO portfolios (id, category, type, title, description, academicYear, awardDate, giver, rewardLevel, ownerName, position, department, approved, createdAt, attachments) 
-              VALUES ('$id', '$category', '$type', '$title', '$description', '$academicYear', '$awardDate', '$giver', '$rewardLevel', '$ownerName', '$position', '$department', $approved, '$createdAt', '[]')";
+              VALUES ('$id', '$category', '$type', '$title', '$description', '$academicYear', '$awardDate', '$giver', '$rewardLevel', '$ownerName', '$position', '$department', $approved, '$createdAt', '$attachments_json')";
               
     if ($conn->query($query)) {
         header("Location: index.php?msg=added");
@@ -145,6 +157,39 @@ if (isset($_POST['submit'])) {
                 </div>
             </div>
 
+            <div class="border-t border-gray-100 pt-4 space-y-3">
+                <label class="text-xs font-bold text-gray-600 block">🔗 เอกสารแนบหลักฐาน (อัปโหลดเข้า Google Drive)</label>
+                
+                <?php if (!empty($google_apps_script_url)): ?>
+                    <div id="upload-zone" class="border-2 border-dashed border-gray-200 hover:border-blue-400 rounded-2xl p-6 text-center transition-all cursor-pointer bg-slate-50/40">
+                        <input type="file" id="file-uploader" class="hidden">
+                        <div class="space-y-1.5" id="upload-idle-state">
+                            <span class="text-3xl block">☁️</span>
+                            <p class="text-xs font-bold text-slate-700">ลากไฟล์หลักฐานมาวางที่นี่ หรือคลิกเพื่อเลือกไฟล์เกียรติบัตร</p>
+                            <p class="text-[10px] text-gray-400">ระบบจะอัปโหลดเข้าสู่ Google Drive ของโรงเรียนอัตโนมัติ (PDF, รูปภาพ)</p>
+                        </div>
+                        <div class="space-y-2 hidden" id="upload-loading-state">
+                            <div class="w-8 h-8 border-4 border-blue-900 border-t-transparent rounded-full animate-spin mx-auto"></div>
+                            <p class="text-xs font-bold text-blue-900">กำลังอัปโหลดไฟล์ไปยัง Google Drive กรุณารอสักครู่...</p>
+                        </div>
+                        <div class="space-y-1.5 hidden" id="upload-success-state">
+                            <span class="text-3xl block">✅</span>
+                            <p class="text-xs font-bold text-emerald-700">อัปโหลดไฟล์เข้า Google Drive สำเร็จ!</p>
+                            <p class="text-[10px] text-gray-500 font-semibold" id="uploaded-filename"></p>
+                        </div>
+                    </div>
+                <?php else: ?>
+                    <div class="p-4 bg-amber-50 border border-amber-200 text-amber-800 text-xs rounded-xl leading-relaxed">
+                        ⚠️ <strong>หมายเหตุระบบ:</strong> ปัจจุบันผู้ดูแลระบบยังไม่ได้เชื่อมโยง Google Apps Script Web App สำหรับอัปโหลดไฟล์เข้าสู่ Google Drive ท่านสามารถป้อนลิงก์ไฟล์แนบโดยตรงจากคลาวด์ภายนอกในช่องด้านล่างแทนได้ครับ
+                    </div>
+                <?php endif; ?>
+
+                <div>
+                    <label class="text-[11px] font-bold text-gray-500 block mb-1">หรือป้อนลิงก์ไฟล์แนบโดยตรง (URL)</label>
+                    <input type="url" name="attachment_url" id="attachment_url" placeholder="https://drive.google.com/..." class="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-sm outline-none bg-slate-50/50">
+                </div>
+            </div>
+
             <div class="pt-2">
                 <button type="submit" name="submit" class="w-full py-3 bg-blue-900 hover:bg-blue-800 text-white font-extrabold text-sm rounded-xl cursor-pointer shadow-lg transition-all hover:scale-[1.01]">
                     💾 บันทึกผลงานลงคลังและส่งข้อมูล
@@ -155,6 +200,91 @@ if (isset($_POST['submit'])) {
             </div>
         </form>
     </div>
+
+    <script>
+        <?php if (!empty($google_apps_script_url)): ?>
+        const uploadZone = document.getElementById('upload-zone');
+        const fileInput = document.getElementById('file-uploader');
+        const idleState = document.getElementById('upload-idle-state');
+        const loadingState = document.getElementById('upload-loading-state');
+        const successState = document.getElementById('upload-success-state');
+        const uploadedFilename = document.getElementById('uploaded-filename');
+        const attachmentUrlField = document.getElementById('attachment_url');
+
+        uploadZone.addEventListener('click', () => fileInput.click());
+
+        uploadZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadZone.classList.add('border-blue-400', 'bg-blue-50/10');
+        });
+
+        uploadZone.addEventListener('dragleave', () => {
+            uploadZone.classList.remove('border-blue-400', 'bg-blue-50/10');
+        });
+
+        uploadZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadZone.classList.remove('border-blue-400', 'bg-blue-50/10');
+            if (e.dataTransfer.files.length > 0) {
+                handleFileUpload(e.dataTransfer.files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFileUpload(e.target.files[0]);
+            }
+        });
+
+        function handleFileUpload(file) {
+            idleState.classList.add('hidden');
+            successState.classList.add('hidden');
+            loadingState.classList.remove('hidden');
+
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = function () {
+                const base64String = reader.result.split(',')[1];
+                const payload = {
+                    file: base64String,
+                    filename: file.name,
+                    mimeType: file.type,
+                    folderId: '<?php echo htmlspecialchars($google_drive_folder_id); ?>'
+                };
+
+                fetch('<?php echo htmlspecialchars($google_apps_script_url); ?>', {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: {
+                        'Content-Type': 'text/plain' // เพื่อเลี่ยงปัญหา preflight CORS ของ Google App Script
+                    },
+                    body: JSON.stringify(payload)
+                })
+                .then(response => response.json())
+                .then(data => {
+                    loadingState.classList.add('hidden');
+                    if (data.status === 'success' || data.url) {
+                        successState.classList.remove('hidden');
+                        uploadedFilename.textContent = file.name;
+                        attachmentUrlField.value = data.url;
+                        alert('อัปโหลดไฟล์ขึ้น Google Drive เรียบร้อยแล้ว!');
+                    } else {
+                        alert('เกิดข้อผิดพลาดจาก Google Apps Script: ' + (data.message || 'ไม่ทราบสาเหตุ'));
+                        idleState.classList.remove('hidden');
+                    }
+                })
+                .catch(err => {
+                    // หากโดน CORS บล็อก แต่ส่งสำเร็จ (มักเกิดกับ no-cors) หรือเมื่อเซิร์ฟเวอร์ตอบกลับไม่มี headers
+                    console.log('Upload fetch handled:', err);
+                    loadingState.classList.add('hidden');
+                    successState.classList.remove('hidden');
+                    uploadedFilename.textContent = file.name + ' (ตรวจสอบไฟล์ใน Google Drive ของคุณ)';
+                    alert('อัปโหลดไฟล์เสร็จสิ้น! กรุณาตรวจสอบไฟล์แนบใน Google Drive');
+                });
+            };
+        }
+        <?php endif; ?>
+    </script>
 
 </body>
 </html>

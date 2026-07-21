@@ -2,6 +2,12 @@
 // index.php - หน้าหลักของระบบประกันคุณภาพและคลังสะสมผลงานดิจิทัล โรงเรียนบ้านหนองหว้า
 require_once 'config.php';
 
+// ดึงการตั้งค่าโรงเรียนและ Google Drive
+$school_name = get_setting($conn, 'school_name', 'โรงเรียนบ้านหนองหว้า');
+$school_logo = get_setting($conn, 'school_logo', '');
+$google_drive_folder_id = get_setting($conn, 'google_drive_folder_id', '');
+$google_apps_script_url = get_setting($conn, 'google_apps_script_url', '');
+
 // ดึงปีการศึกษาเพื่อทำตัวกรอง
 $years_query = "SELECT DISTINCT academicYear FROM portfolios ORDER BY academicYear DESC";
 $years_result = $conn->query($years_query);
@@ -74,7 +80,7 @@ $stat_teacher = $conn->query("SELECT COUNT(*) as total FROM portfolios WHERE cat
 $stat_student = $conn->query("SELECT COUNT(*) as total FROM portfolios WHERE category='student' AND approved=1")->fetch_assoc()['total'];
 $stat_pending = $conn->query("SELECT COUNT(*) as total FROM portfolios WHERE approved=0")->fetch_assoc()['total'];
 
-// จัดการอนุมัติผลงาน (เฉพาะ Admin)
+// จัดการบันทึกการตั้งค่า และอนุมัติผลงาน (เฉพาะ Admin)
 if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') {
     if (isset($_GET['approve_id'])) {
         $approve_id = $conn->real_escape_string($_GET['approve_id']);
@@ -86,6 +92,20 @@ if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') {
         $delete_id = $conn->real_escape_string($_GET['delete_id']);
         $conn->query("DELETE FROM portfolios WHERE id = '$delete_id'");
         header("Location: index.php?msg=deleted");
+        exit;
+    }
+    if (isset($_POST['save_settings'])) {
+        $school_name = $_POST['school_name'];
+        $school_logo = $_POST['school_logo'];
+        $google_drive_folder_id = $_POST['google_drive_folder_id'];
+        $google_apps_script_url = $_POST['google_apps_script_url'];
+
+        set_setting($conn, 'school_name', $school_name);
+        set_setting($conn, 'school_logo', $school_logo);
+        set_setting($conn, 'google_drive_folder_id', $google_drive_folder_id);
+        set_setting($conn, 'google_apps_script_url', $google_apps_script_url);
+
+        header("Location: index.php?msg=settings_updated");
         exit;
     }
 }
@@ -110,12 +130,16 @@ if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') {
     <header class="bg-gradient-to-r from-blue-900 via-blue-800 to-indigo-950 text-white shadow-xl sticky top-0 z-50 print:hidden">
         <div class="max-w-7xl mx-auto px-4 py-3.5 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div class="flex items-center gap-3 text-center sm:text-left">
-                <div class="w-12 h-12 bg-white rounded-2xl p-1 shadow-inner flex items-center justify-center flex-shrink-0">
-                    <span class="text-blue-950 font-black text-lg">NHW</span>
+                <div class="w-12 h-12 bg-white rounded-2xl p-1 shadow-inner flex items-center justify-center flex-shrink-0 overflow-hidden">
+                    <?php if (!empty($school_logo)): ?>
+                        <img src="<?php echo htmlspecialchars($school_logo); ?>" alt="School Logo" class="w-full h-full object-contain">
+                    <?php else: ?>
+                        <span class="text-blue-950 font-black text-lg">NHW</span>
+                    <?php endif; ?>
                 </div>
                 <div>
                     <h1 class="text-base md:text-lg font-bold text-amber-400">ระบบประกันคุณภาพและคลังสะสมผลงานดิจิทัล</h1>
-                    <p class="text-[10px] md:text-xs text-blue-200">โรงเรียนบ้านหนองหว้า (Ban Nong Wa School)</p>
+                    <p class="text-[10px] md:text-xs text-blue-200"><?php echo htmlspecialchars($school_name); ?></p>
                 </div>
             </div>
 
@@ -146,9 +170,145 @@ if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') {
         
         <!-- แจ้งเตือนเมื่อทำรายการสำเร็จ -->
         <?php if(isset($_GET['msg'])): ?>
-            <div class="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-2xl flex items-center gap-2">
+            <div class="p-4 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-2xl flex items-center gap-2 shadow-sm">
                 <span>✅</span>
-                <span>ทำรายการสำเร็จเรียบร้อยแล้ว!</span>
+                <span>
+                    <?php 
+                        if ($_GET['msg'] === 'settings_updated') {
+                            echo 'บันทึกการตั้งค่าโรงเรียนและเชื่อมต่อระบบ Google Drive สำเร็จเรียบร้อยแล้ว!';
+                        } elseif ($_GET['msg'] === 'approved') {
+                            echo 'อนุมัติเผยแพร่ผลงานเรียบร้อยแล้ว!';
+                        } elseif ($_GET['msg'] === 'deleted') {
+                            echo 'ลบผลงานออกจากระบบเรียบร้อยแล้ว!';
+                        } else {
+                            echo 'ทำรายการสำเร็จเรียบร้อยแล้ว!';
+                        }
+                    ?>
+                </span>
+            </div>
+        <?php endif; ?>
+
+        <?php if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin'): ?>
+            <!-- แผงตั้งค่าผู้ดูแลระบบและรหัสเชื่อมโยง Google Drive (Admin Settings) -->
+            <section class="bg-white p-6 rounded-3xl shadow-sm border border-blue-100 text-left">
+                <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+                    <div class="flex items-center gap-2.5">
+                        <span class="text-xl">⚙️</span>
+                        <div>
+                            <h2 class="text-sm font-extrabold text-slate-800">แผงควบคุมตั้งค่าโรงเรียนและระบบเชื่อมโยงคลังข้อมูล Google Drive</h2>
+                            <p class="text-[10px] text-gray-400">สำหรับผู้ดูแลระบบ (Admin) เท่านั้น เพื่อเชื่อมต่อสื่อ/เอกสารแนบกับ Google Drive ได้โดยตรง</p>
+                        </div>
+                    </div>
+                </div>
+
+                <form method="POST" class="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block font-bold text-gray-700 mb-1">🏫 ชื่อโรงเรียน / สถาบัน</label>
+                            <input type="text" name="school_name" value="<?php echo htmlspecialchars($school_name); ?>" required class="w-full px-3 py-2.5 rounded-xl border border-gray-200 outline-none focus:border-blue-500 bg-slate-50/50">
+                        </div>
+                        <div>
+                            <label class="block font-bold text-gray-700 mb-1">🎨 ลิงก์โลโก้โรงเรียน (Image URL)</label>
+                            <input type="url" name="school_logo" value="<?php echo htmlspecialchars($school_logo); ?>" placeholder="https://example.com/logo.png" class="w-full px-3 py-2.5 rounded-xl border border-gray-200 outline-none focus:border-blue-500 bg-slate-50/50">
+                            <p class="text-[9px] text-gray-400 mt-1">💡 ป้อนลิงก์ที่อยู่ไฟล์รูปภาพโลโก้ของคุณ เพื่อนำไปแสดงในแถบเมนูด้านบน</p>
+                        </div>
+                    </div>
+
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block font-bold text-gray-700 mb-1">📁 Google Drive Folder ID</label>
+                            <input type="text" name="google_drive_folder_id" value="<?php echo htmlspecialchars($google_drive_folder_id); ?>" placeholder="1aBcD-eFgHiJkLmNoPqRsTuVwXyZ" class="w-full px-3 py-2.5 rounded-xl border border-gray-200 outline-none focus:border-blue-500 bg-slate-50/50">
+                            <p class="text-[9px] text-gray-400 mt-1">💡 คัดลอก ID จาก URL โฟลเดอร์ใน Google Drive ของคุณที่ต้องการใช้จัดเก็บไฟล์</p>
+                        </div>
+                        <div>
+                            <label class="block font-bold text-gray-700 mb-1">⚡ Google Apps Script Web App URL</label>
+                            <input type="url" name="google_apps_script_url" value="<?php echo htmlspecialchars($google_apps_script_url); ?>" placeholder="https://script.google.com/macros/s/.../exec" class="w-full px-3 py-2.5 rounded-xl border border-gray-200 outline-none focus:border-blue-500 bg-slate-50/50">
+                            <p class="text-[9px] text-gray-400 mt-1">💡 ป้อนลิงก์ Web App ที่เผยแพร่จาก Google Apps Script เพื่อใช้ส่งไฟล์อัปโหลดเข้า Drive</p>
+                        </div>
+                    </div>
+
+                    <div class="md:col-span-2 pt-2 border-t border-slate-100 flex flex-col md:flex-row gap-4 items-center justify-between">
+                        <button type="button" onclick="document.getElementById('gas-script-modal').classList.toggle('hidden')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg cursor-pointer transition-all flex items-center gap-1.5">
+                            <span>📋 ดูโค้ด Google Apps Script</span>
+                        </button>
+                        <button type="submit" name="save_settings" class="w-full md:w-auto px-6 py-2.5 bg-blue-900 hover:bg-blue-800 text-white font-extrabold rounded-xl shadow-md transition-all cursor-pointer">
+                            💾 บันทึกการตั้งค่าทั้งหมด
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <!-- Modal สำหรับดูโค้ด Google Apps Script -->
+            <div id="gas-script-modal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div class="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl space-y-4 text-left flex flex-col max-h-[85vh]">
+                    <div class="flex justify-between items-center pb-2 border-b">
+                        <div class="flex items-center gap-2">
+                            <span class="text-lg">📋</span>
+                            <h3 class="font-bold text-sm text-slate-800">โค้ดสำหรับสร้าง Google Apps Script เพื่อเชื่อมต่อกับ Google Drive</h3>
+                        </div>
+                        <button onclick="document.getElementById('gas-script-modal').classList.add('hidden')" class="text-gray-400 hover:text-gray-600 font-extrabold text-sm p-1">❌ ปิด</button>
+                    </div>
+                    
+                    <div class="text-xs text-slate-500 space-y-2">
+                        <p class="font-semibold text-blue-900">💡 วิธีการนำไปใช้งาน:</p>
+                        <ol class="list-decimal pl-5 space-y-1">
+                            <li>เปิดเว็บ <a href="https://script.google.com/" target="_blank" class="text-blue-600 underline">Google Apps Script</a> แล้วกด "โครงการใหม่" (New Project)</li>
+                            <li>คัดลอกโค้ดด้านล่างทั้งหมดไปใส่แทนที่โค้ดเดิมทั้งหมดในไฟล์โครงการ</li>
+                            <li>กดเซฟ แล้วเลือก <strong>"การใช้งานได้จริง" (Deploy) > "การจัดการการปรับใช้ใหม่" (New Deployment)</strong></li>
+                            <li>เลือกประเภทเป็น <strong>"เว็บแอป" (Web App)</strong></li>
+                            <li>ตั้งค่า: ผู้มีสิทธิ์เข้าถึง (Who has access) ให้เลือกเป็น <strong>"ทุกคน" (Anyone)</strong> เพื่ออนุญาตให้ฟอร์มส่งอัปโหลดได้</li>
+                            <li>กดปรับใช้ (Deploy) แล้วคัดลอก **URL เว็บแอป (Web App URL)** มาวางในช่องตั้งค่าด้านบนของเว็บนี้ได้เลย!</li>
+                        </ol>
+                    </div>
+
+                    <div class="flex-1 overflow-y-auto bg-slate-900 text-slate-200 p-4 rounded-xl font-mono text-[11px] leading-relaxed relative">
+                        <pre id="gasCodeText" class="whitespace-pre-wrap select-all">function doPost(e) {
+  try {
+    var data = JSON.parse(e.postData.contents);
+    var base64Data = data.file;
+    var fileName = data.filename;
+    var folderId = data.folderId; // โฟลเดอร์ปลายทาง
+    
+    var decoded = Utilities.base64Decode(base64Data);
+    var blob = Utilities.newBlob(decoded, data.mimeType, fileName);
+    
+    var folder;
+    if (folderId) {
+      folder = DriveApp.getFolderById(folderId);
+    } else {
+      folder = DriveApp.getRootFolder();
+    }
+    
+    var file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    
+    var result = {
+      status: "success",
+      url: file.getUrl(),
+      id: file.getId()
+    };
+    
+    return ContentService.createTextOutput(JSON.stringify(result))
+      .setMimeType(ContentService.MimeType.JSON);
+      
+  } catch(err) {
+    return ContentService.createTextOutput(JSON.stringify({
+      status: "error",
+      message: err.toString()
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+}</pre>
+                    </div>
+                    
+                    <div class="flex justify-end gap-2 pt-2 border-t">
+                        <button onclick="navigator.clipboard.writeText(document.getElementById(&#39;gasCodeText&#39;).innerText); alert(&#39;คัดลอกโค้ดเรียบร้อยแล้ว!&#39;);" class="px-4 py-2 bg-blue-900 hover:bg-blue-800 text-white text-xs font-bold rounded-lg cursor-pointer">
+                            📋 คัดลอกโค้ดไปยังคลิปบอร์ด
+                        </button>
+                        <button onclick="document.getElementById(&#39;gas-script-modal&#39;).classList.add(&#39;hidden&#39;)" class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-slate-700 text-xs font-bold rounded-lg cursor-pointer">
+                            ปิดหน้าต่าง
+                        </button>
+                    </div>
+                </div>
             </div>
         <?php endif; ?>
 
