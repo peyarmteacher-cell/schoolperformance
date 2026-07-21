@@ -74,11 +74,18 @@ if (count($where_clauses) > 0) {
 $query = "SELECT * FROM portfolios $where_sql ORDER BY academicYear DESC, createdAt DESC";
 $result = $conn->query($query);
 
-// ดึงสถิติรวมสำหรับแผงควบคุมหลัก (Dashboard Panels)
-$stat_school = $conn->query("SELECT COUNT(*) as total FROM portfolios WHERE category='school' AND approved=1")->fetch_assoc()['total'];
-$stat_teacher = $conn->query("SELECT COUNT(*) as total FROM portfolios WHERE category='teacher' AND approved=1")->fetch_assoc()['total'];
-$stat_student = $conn->query("SELECT COUNT(*) as total FROM portfolios WHERE category='student' AND approved=1")->fetch_assoc()['total'];
-$stat_pending = $conn->query("SELECT COUNT(*) as total FROM portfolios WHERE approved=0")->fetch_assoc()['total'];
+// ดึงสถิติรวมสำหรับแผงควบคุมหลัก (Dashboard Panels) โดยคำนึงถึงความปลอดภัยของผลลัพธ์คิวรี
+$res_school = $conn->query("SELECT COUNT(*) as total FROM portfolios WHERE category='school' AND approved=1");
+$stat_school = ($res_school) ? $res_school->fetch_assoc()['total'] : 0;
+
+$res_teacher = $conn->query("SELECT COUNT(*) as total FROM portfolios WHERE category='teacher' AND approved=1");
+$stat_teacher = ($res_teacher) ? $res_teacher->fetch_assoc()['total'] : 0;
+
+$res_student = $conn->query("SELECT COUNT(*) as total FROM portfolios WHERE category='student' AND approved=1");
+$stat_student = ($res_student) ? $res_student->fetch_assoc()['total'] : 0;
+
+$res_pending = $conn->query("SELECT COUNT(*) as total FROM portfolios WHERE approved=0");
+$stat_pending = ($res_pending) ? $res_pending->fetch_assoc()['total'] : 0;
 
 // จัดการบันทึกการตั้งค่า และอนุมัติผลงาน (เฉพาะ Admin)
 if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') {

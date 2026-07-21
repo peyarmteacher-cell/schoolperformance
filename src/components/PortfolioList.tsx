@@ -10,6 +10,7 @@ interface PortfolioListProps {
   onApprove: (id: string, approved: boolean) => void;
   onViewItemDetail?: PortfolioItem | null;
   onClearViewItemDetail?: () => void;
+  initialCategory?: string;
 }
 
 export default function PortfolioList({
@@ -19,12 +20,13 @@ export default function PortfolioList({
   onDelete,
   onApprove,
   onViewItemDetail,
-  onClearViewItemDetail
+  onClearViewItemDetail,
+  initialCategory = 'all'
 }: PortfolioListProps) {
   
   // 1. ฟิลเตอร์ค้นหาหลัก
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [selectedCategory, setSelectedCategory] = useState<string>(initialCategory);
   const [selectedYear, setSelectedYear] = useState<string>('all');
   const [selectedLevel, setSelectedLevel] = useState<string>('all');
   const [selectedType, setSelectedType] = useState<string>('all');
@@ -37,6 +39,13 @@ export default function PortfolioList({
   const [pdfViewerName, setPdfViewerName] = useState<string | null>(null);
   const [qrCodeItem, setQrCodeItem] = useState<PortfolioItem | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  // Sync category selection when initialCategory prop changes
+  React.useEffect(() => {
+    if (initialCategory) {
+      setSelectedCategory(initialCategory);
+    }
+  }, [initialCategory]);
 
   // รองรับการรับพารามิเตอร์เพื่อเปิดหน้าแสดงผลทันที (เช่น ตอนกดจาก dashboard)
   React.useEffect(() => {

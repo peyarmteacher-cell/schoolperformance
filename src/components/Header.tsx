@@ -23,17 +23,23 @@ export default function Header({
 
   const menuItems = currentUser
     ? [
-        { id: 'dashboard', label: 'แดชบอร์ด' },
-        { id: 'list', label: 'คลังผลงาน' },
-        { id: 'form', label: 'บันทึกผลงานใหม่' },
-        { id: 'reports', label: 'รายงาน' },
-        ...(currentUser.role === 'admin' ? [{ id: 'setup', label: 'จัดการระบบหลังบ้าน & MySQL' }] : [])
+        { id: 'dashboard', label: '📊 แดชบอร์ดหลัก' },
+        { id: 'list_school', label: '🏫 คลังสื่อโรงเรียน' },
+        { id: 'list_teacher', label: '👩‍🏫 คลังสื่อคุณครู' },
+        { id: 'list_student', label: '🎓 คลังสื่อนักเรียน' },
+        { id: 'list', label: '📁 คลังหลักฐานทั้งหมด' },
+        { id: 'form', label: '➕ บันทึกผลงานใหม่' },
+        { id: 'reports', label: '📈 รายงาน SAR' },
+        ...(currentUser.role === 'admin' ? [{ id: 'setup', label: '⚙️ ตั้งค่า & โค้ด Apps Script' }] : [])
       ]
     : [
-        { id: 'dashboard', label: 'แดชบอร์ด' },
-        { id: 'list', label: 'คลังผลงาน' },
-        { id: 'reports', label: 'รายงาน' },
-        { id: 'login', label: 'เข้าสู่ระบบ (Login)' }
+        { id: 'dashboard', label: '📊 แดชบอร์ดหลัก' },
+        { id: 'list_school', label: '🏫 คลังสื่อโรงเรียน' },
+        { id: 'list_teacher', label: '👩‍🏫 คลังสื่อคุณครู' },
+        { id: 'list_student', label: '🎓 คลังสื่อนักเรียน' },
+        { id: 'list', label: '📁 คลังหลักฐานทั้งหมด' },
+        { id: 'reports', label: '📈 รายงาน SAR' },
+        { id: 'login', label: '🔒 เข้าสู่ระบบ' }
       ];
 
   return (

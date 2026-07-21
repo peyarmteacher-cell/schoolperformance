@@ -41,7 +41,7 @@ export default function SetupGuide({
 }: SetupGuideProps) {
   
   // Navigation for settings sub-tabs
-  const [activeSubTab, setActiveSubTab] = useState<'mysql' | 'users' | 'google' | 'php'>('php');
+  const [activeSubTab, setActiveSubTab] = useState<'mysql' | 'users' | 'google' | 'php'>('google');
   const [selectedPhpFile, setSelectedPhpFile] = useState<string>('index.php');
   const [copiedPhpFile, setCopiedPhpFile] = useState<boolean>(false);
 

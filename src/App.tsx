@@ -195,6 +195,13 @@ export default function App() {
           />
         );
       case 'list':
+      case 'list_school':
+      case 'list_teacher':
+      case 'list_student':
+        let cat = 'all';
+        if (activeTab === 'list_school') cat = 'school';
+        if (activeTab === 'list_teacher') cat = 'teacher';
+        if (activeTab === 'list_student') cat = 'student';
         return (
           <PortfolioList
             items={items}
@@ -204,6 +211,7 @@ export default function App() {
             onApprove={handleApprovePortfolio}
             onViewItemDetail={viewItemDetail}
             onClearViewItemDetail={() => setViewItemDetail(null)}
+            initialCategory={cat}
           />
         );
       case 'form':
