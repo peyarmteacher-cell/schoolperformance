@@ -31,6 +31,7 @@ export default function PortfolioList({
   const [selectedLevel, setSelectedLevel] = useState<string>('all');
   const [selectedType, setSelectedType] = useState<string>('all');
   const [selectedApproval, setSelectedApproval] = useState<string>('all');
+  const [selectedTeacher, setSelectedTeacher] = useState<string>('all');
 
   // Modals / Lightbox State
   const [activeDetailItem, setActiveDetailItem] = useState<PortfolioItem | null>(null);
@@ -62,6 +63,11 @@ export default function PortfolioList({
   // ดึงรายการประเภทผลงานทั้งหมดที่มีในระบบเพื่อใช้เป็นตัวกรอง
   const uniqueTypes = Array.from(new Set(items.map(item => item.type)));
   const uniqueYears = Array.from(new Set(items.map(item => item.academicYear))).sort();
+  const uniqueTeachers = Array.from(new Set(
+    items
+      .map(item => item.category === 'teacher' ? item.ownerName : item.responsiblePerson)
+      .filter(Boolean)
+  )).sort();
 
   // จัดการการกรองข้อมูล
   const filteredItems = items.filter((item) => {
@@ -77,12 +83,13 @@ export default function PortfolioList({
     const matchesYear = selectedYear === 'all' || item.academicYear === selectedYear;
     const matchesLevel = selectedLevel === 'all' || item.rewardLevel === selectedLevel;
     const matchesType = selectedType === 'all' || item.type === selectedType;
+    const matchesTeacher = selectedTeacher === 'all' || item.ownerName === selectedTeacher || item.responsiblePerson === selectedTeacher;
     
     let matchesApproval = true;
     if (selectedApproval === 'approved') matchesApproval = item.approved;
     else if (selectedApproval === 'pending') matchesApproval = !item.approved;
 
-    return matchesSearch && matchesCategory && matchesYear && matchesLevel && matchesType && matchesApproval;
+    return matchesSearch && matchesCategory && matchesYear && matchesLevel && matchesType && matchesApproval && matchesTeacher;
   });
 
   const getCategoryColor = (cat: PortfolioCategory) => {
@@ -156,6 +163,7 @@ export default function PortfolioList({
     setSelectedLevel('all');
     setSelectedType('all');
     setSelectedApproval('all');
+    setSelectedTeacher('all');
   };
 
   const getShareUrl = (item: PortfolioItem) => {
@@ -194,7 +202,7 @@ export default function PortfolioList({
         </div>
 
         {/* ตัวกรองดรอปดาวน์ */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 pt-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 pt-2">
           
           {/* 1. หมวดหมู่ */}
           <div>
@@ -259,8 +267,23 @@ export default function PortfolioList({
             </select>
           </div>
 
-          {/* 5. สถานะการอนุมัติ (แอดมินหรือทั่วไป) */}
-          <div className="col-span-2 sm:col-span-1">
+          {/* 5. คัดกรองรายบุคคลคุณครู */}
+          <div>
+            <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase tracking-wider">ครูผู้สอน/รับผิดชอบ</label>
+            <select
+              value={selectedTeacher}
+              onChange={(e) => setSelectedTeacher(e.target.value)}
+              className="w-full bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs focus:bg-white outline-none truncate"
+            >
+              <option value="all">ทุกคน (รวมทั้งหมด)</option>
+              {uniqueTeachers.map(t => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* 6. สถานะการอนุมัติ (แอดมินหรือทั่วไป) */}
+          <div>
             <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase tracking-wider">สถานะอนุมัติ</label>
             <select
               value={selectedApproval}

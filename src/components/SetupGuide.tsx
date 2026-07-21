@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Copy, Check, Link2, Link2Off, HardDrive, FileText, Database, ShieldAlert, Sparkles, 
   HelpCircle, Save, CheckCircle2, ChevronRight, FileCode, AlertCircle, Download, 
@@ -29,6 +29,8 @@ interface SetupGuideProps {
   onDisconnect: () => void;
   onSuccess: (msg: string) => void;
   onFailure: (msg: string) => void;
+  settings?: { school_name: string; school_logo: string };
+  onSaveSettings?: (settings: { school_name?: string; school_logo?: string }) => Promise<void>;
 }
 
 export default function SetupGuide({
@@ -37,11 +39,13 @@ export default function SetupGuide({
   onSaveConfig,
   onDisconnect,
   onSuccess,
-  onFailure
+  onFailure,
+  settings,
+  onSaveSettings
 }: SetupGuideProps) {
   
   // Navigation for settings sub-tabs
-  const [activeSubTab, setActiveSubTab] = useState<'mysql' | 'users' | 'google' | 'php'>('google');
+  const [activeSubTab, setActiveSubTab] = useState<'mysql' | 'users' | 'google' | 'php' | 'branding'>('google');
   const [selectedPhpFile, setSelectedPhpFile] = useState<string>('index.php');
   const [copiedPhpFile, setCopiedPhpFile] = useState<boolean>(false);
 
@@ -72,6 +76,21 @@ export default function SetupGuide({
   const [newEmail, setNewEmail] = useState('');
   const [newRole, setNewRole] = useState<'admin' | 'teacher'>('teacher');
   const [isAddingUser, setIsAddingUser] = useState(false);
+
+  // School branding states
+  const [inputSchoolName, setInputSchoolName] = useState(settings?.school_name || 'โรงเรียนบ้านหนองหว้า');
+  const [inputSchoolLogo, setInputSchoolLogo] = useState(settings?.school_logo || '');
+  const [isDraggingLogo, setIsDraggingLogo] = useState(false);
+  const [isSavingBranding, setIsSavingBranding] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
+  // Sync settings when props change
+  useEffect(() => {
+    if (settings) {
+      setInputSchoolName(settings.school_name);
+      setInputSchoolLogo(settings.school_logo);
+    }
+  }, [settings]);
 
   // Load Database Status and User List
   const loadDatabaseAndUsers = async () => {
@@ -238,6 +257,42 @@ export default function SetupGuide({
     }
   };
 
+  // Handle school branding actions
+  const handleLogoFileSelect = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      onFailure('กรุณาเลือกไฟล์รูปภาพเท่านั้น');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      onFailure('ขนาดไฟล์ภาพต้องไม่เกิน 5MB');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      if (e.target?.result) {
+        setInputSchoolLogo(e.target.result as string);
+        onSuccess('โหลดไฟล์รูปภาพโลโก้สำเร็จ (กรุณากดปุ่มบันทึกเพื่อจัดเก็บข้อมูล)');
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveBranding = async () => {
+    if (!onSaveSettings) return;
+    setIsSavingBranding(true);
+    try {
+      await onSaveSettings({
+        school_name: inputSchoolName.trim() || 'โรงเรียนบ้านหนองหว้า',
+        school_logo: inputSchoolLogo
+      });
+      onSuccess('บันทึกข้อมูลอัตลักษณ์โรงเรียนสำเร็จแล้ว!');
+    } catch (err: any) {
+      onFailure('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+    } finally {
+      setIsSavingBranding(false);
+    }
+  };
+
   const getSelectedPhpContent = (): string => {
     switch (selectedPhpFile) {
       case 'database.sql': return PHP_DATABASE_SQL;
@@ -296,6 +351,20 @@ export default function SetupGuide({
           <Database size={15} />
           <span>เชื่อมต่อ MySQL (หลังบ้าน)</span>
         </button>
+
+        {currentUser.role === 'admin' && (
+          <button
+            onClick={() => setActiveSubTab('branding')}
+            className={`flex-1 min-w-[150px] py-3 px-4 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              activeSubTab === 'branding'
+                ? 'bg-blue-900 text-white shadow-md'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+            }`}
+          >
+            <Settings size={15} />
+            <span>🏫 ตรา & ชื่อโรงเรียน</span>
+          </button>
+        )}
 
         {currentUser.role === 'admin' && (
           <button
@@ -1016,6 +1085,118 @@ CREATE TABLE IF NOT EXISTS portfolios (
                 </div>
               </div>
 
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================= VIEW: SCHOOL BRANDING & LOGO UPLOAD (ADMIN ONLY) ================= */}
+      {activeSubTab === 'branding' && currentUser.role === 'admin' && (
+        <div className="space-y-6 animate-fade-in">
+          <div className="bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-gray-100 space-y-6">
+            <div className="text-left border-b border-gray-100 pb-4">
+              <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                <Settings className="text-blue-900" size={22} />
+                <span>🏫 ตั้งค่าข้อมูลอัตลักษณ์โรงเรียน (School Branding)</span>
+              </h2>
+              <p className="text-xs text-gray-500 mt-1">
+                กำหนดชื่อโรงเรียนและอัปโหลดไฟล์โลโก้เพื่อแสดงบนหัวเว็บและรายงานสารสนเทศ ระบบจะจัดเก็บข้อมูลลงในฐานข้อมูลของโรงเรียนโดยตรง ไม่เสี่ยงต่อการโดนลบรูปภาพ
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+              {/* Left Column: Form Settings */}
+              <div className="md:col-span-7 space-y-4">
+                <div className="space-y-1.5 text-left">
+                  <label className="block text-xs font-bold text-gray-700">ชื่อสถานศึกษา (School Name)</label>
+                  <input
+                    type="text"
+                    value={inputSchoolName}
+                    onChange={(e) => setInputSchoolName(e.target.value)}
+                    placeholder="เช่น โรงเรียนบ้านหนองหว้า"
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-xs focus:bg-white focus:border-blue-500 outline-none"
+                  />
+                </div>
+
+                <div className="space-y-1.5 text-left">
+                  <label className="block text-xs font-bold text-gray-700">โลโก้ประจำโรงเรียน (School Logo Image)</label>
+                  <div 
+                    onDragOver={(e) => { e.preventDefault(); setIsDraggingLogo(true); }}
+                    onDragLeave={() => setIsDraggingLogo(false)}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      setIsDraggingLogo(false);
+                      const files = e.dataTransfer.files;
+                      if (files && files.length > 0) handleLogoFileSelect(files[0]);
+                    }}
+                    onClick={() => logoInputRef.current?.click()}
+                    className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${
+                      isDraggingLogo
+                        ? 'border-blue-600 bg-blue-50'
+                        : 'border-gray-200 hover:border-blue-400 bg-gray-50/40 hover:bg-gray-50'
+                    }`}
+                  >
+                    <input 
+                      type="file" 
+                      ref={logoInputRef} 
+                      className="hidden" 
+                      accept="image/*" 
+                      onChange={(e) => {
+                        const files = e.target.files;
+                        if (files && files.length > 0) handleLogoFileSelect(files[0]);
+                      }}
+                    />
+                    <div className="flex flex-col items-center justify-center gap-1.5">
+                      <Upload size={20} className="text-gray-400" />
+                      <p className="text-xs font-bold text-gray-700">ลากภาพโลโก้มาวางที่นี่ หรือ คลิกเพื่อเลือกไฟล์</p>
+                      <p className="text-[10px] text-gray-400">รองรับไฟล์ภาพ JPG, PNG, WebP ขนาดไม่เกิน 5MB</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-4">
+                  <button
+                    onClick={handleSaveBranding}
+                    disabled={isSavingBranding}
+                    className="px-6 py-2.5 bg-blue-900 hover:bg-blue-800 disabled:bg-blue-900/60 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow transition-all cursor-pointer"
+                  >
+                    {isSavingBranding ? 'กำลังบันทึกข้อมูล...' : 'บันทึกอัตลักษณ์โรงเรียน'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Right Column: Preview Branding */}
+              <div className="md:col-span-5 bg-slate-50 rounded-2xl p-6 border border-gray-100 flex flex-col items-center justify-center text-center gap-4">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">ภาพตัวอย่างแสดงผลจริง</p>
+                
+                <div className="relative w-28 h-28 bg-white rounded-full p-2.5 shadow-md flex items-center justify-center overflow-hidden border border-gray-100">
+                  {inputSchoolLogo ? (
+                    <img src={inputSchoolLogo} alt="School Crest Preview" className="w-full h-full object-contain" />
+                  ) : (
+                    <svg viewBox="0 0 100 100" className="w-full h-full text-blue-900">
+                      <circle cx="50" cy="50" r="46" fill="none" stroke="#F59E0B" strokeWidth="4" />
+                      <circle cx="50" cy="50" r="41" fill="#1E3A8A" />
+                      <path d="M25 65 L50 78 L75 65 L75 35 L50 48 L25 35 Z" fill="#F59E0B" opacity="0.9" />
+                      <path d="M50 20 C45 30 55 35 50 45 C48 35 46 30 50 20 Z" fill="#EF4444" />
+                      <path d="M50 25 C48 30 52 32 50 38 C49 32 48 30 50 25 Z" fill="#F59E0B" />
+                    </svg>
+                  )}
+                </div>
+
+                <div>
+                  <h4 className="font-extrabold text-sm text-blue-950">{inputSchoolName || 'โรงเรียนบ้านหนองหว้า'}</h4>
+                  <p className="text-[10px] text-gray-400 mt-1">ระบบคลังผลงานและหลักฐานเชิงประจักษ์</p>
+                </div>
+
+                {inputSchoolLogo && (
+                  <button
+                    onClick={() => setInputSchoolLogo('')}
+                    className="text-[10px] text-rose-600 hover:underline font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    ลบรูปโลโก้ (ใช้รูปหัวเว็บบูรณการเดิม)
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>

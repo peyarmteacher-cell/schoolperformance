@@ -167,6 +167,56 @@ export const apiSetupDB = async (config: any) => {
   }
 };
 
+// --- SCHOOL BRANDING SETTINGS ---
+
+export const apiGetSettings = async (): Promise<{ school_name: string; school_logo: string }> => {
+  try {
+    const res = await fetch('/api/settings');
+    if (res.ok) {
+      const result = await res.json();
+      if (result.status === 'success') {
+        return result.settings;
+      }
+    }
+    throw new Error('โหลดการตั้งค่าไม่สำเร็จ');
+  } catch (err) {
+    console.warn('API apiGetSettings failed, loading from local instead.', err);
+    const name = localStorage.getItem('school_name') || 'โรงเรียนบ้านหนองหว้า';
+    const logo = localStorage.getItem('school_logo') || '';
+    return { school_name: name, school_logo: logo };
+  }
+};
+
+export const apiSaveSettings = async (settings: { school_name?: string; school_logo?: string }): Promise<boolean> => {
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings)
+    });
+    if (res.ok) {
+      const result = await res.json();
+      if (settings.school_name !== undefined) {
+        localStorage.setItem('school_name', settings.school_name);
+      }
+      if (settings.school_logo !== undefined) {
+        localStorage.setItem('school_logo', settings.school_logo);
+      }
+      return result.status === 'success';
+    }
+    throw new Error('บันทึกการตั้งค่าล้มเหลว');
+  } catch (err) {
+    console.warn('API apiSaveSettings failed, saving locally instead.', err);
+    if (settings.school_name !== undefined) {
+      localStorage.setItem('school_name', settings.school_name);
+    }
+    if (settings.school_logo !== undefined) {
+      localStorage.setItem('school_logo', settings.school_logo);
+    }
+    return true;
+  }
+};
+
 // --- CORE PORTFOLIO API METHODS ---
 
 export const getItems = async (): Promise<PortfolioItem[]> => {

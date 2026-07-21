@@ -13,7 +13,9 @@ import {
   savePortfolio, 
   deletePortfolio, 
   setApprovalPortfolio,
-  MySQLConfig
+  MySQLConfig,
+  querySettings,
+  saveSetting
 } from './server/db';
 
 async function startServer() {
@@ -41,6 +43,31 @@ async function startServer() {
       // Re-initialize connection
       await initDatabase();
       res.json({ status: 'success', ...getDBStatus() });
+    } catch (err: any) {
+      res.status(500).json({ status: 'error', message: err.message });
+    }
+  });
+
+  // 1b. School Settings Management
+  app.get('/api/settings', async (req, res) => {
+    try {
+      const settings = await querySettings();
+      res.json({ status: 'success', settings });
+    } catch (err: any) {
+      res.status(500).json({ status: 'error', message: err.message });
+    }
+  });
+
+  app.post('/api/settings', async (req, res) => {
+    try {
+      const { school_name, school_logo } = req.body;
+      if (school_name !== undefined) {
+        await saveSetting('school_name', school_name);
+      }
+      if (school_logo !== undefined) {
+        await saveSetting('school_logo', school_logo);
+      }
+      res.json({ status: 'success', message: 'บันทึกการตั้งค่าสำเร็จ' });
     } catch (err: any) {
       res.status(500).json({ status: 'error', message: err.message });
     }

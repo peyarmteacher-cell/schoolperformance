@@ -9,6 +9,7 @@ interface PortfolioFormProps {
   portfolioToEdit?: PortfolioItem | null;
   onCancel: () => void;
   onSuccess: (msg: string) => void;
+  teachers?: User[];
 }
 
 export default function PortfolioForm({
@@ -17,7 +18,8 @@ export default function PortfolioForm({
   onUploadFile,
   portfolioToEdit,
   onCancel,
-  onSuccess
+  onSuccess,
+  teachers = []
 }: PortfolioFormProps) {
   
   // 1. กำหนด State ของฟอร์ม
@@ -427,13 +429,31 @@ export default function PortfolioForm({
               <label className="block text-xs font-bold text-gray-700 mb-1">
                 ชื่อเจ้าของผลงาน / ผู้จัดทำหลัก
               </label>
-              <input
-                type="text"
-                placeholder="เช่น นายปัญญา รักดี, ด.ช.มานะ ใฝ่เรียน"
-                value={ownerName}
-                onChange={(e) => setOwnerName(e.target.value)}
-                className="w-full bg-white border border-gray-300 rounded-xl px-3.5 py-2.5 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
-              />
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  placeholder="เช่น นายปัญญา รักดี, ด.ช.มานะ ใฝ่เรียน"
+                  value={ownerName}
+                  onChange={(e) => setOwnerName(e.target.value)}
+                  className="flex-1 bg-white border border-gray-300 rounded-xl px-3.5 py-2.5 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                />
+                {category === 'teacher' && teachers && teachers.length > 0 && (
+                  <select
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        setOwnerName(e.target.value);
+                      }
+                    }}
+                    value=""
+                    className="max-w-[120px] bg-slate-50 border border-gray-300 rounded-xl px-2 py-1.5 text-xs focus:border-blue-500 outline-none cursor-pointer"
+                  >
+                    <option value="">-- เลือกครู --</option>
+                    {teachers.map((t) => (
+                      <option key={t.id} value={t.name}>{t.name}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
             </div>
 
             {/* ตำแหน่ง */}
@@ -483,13 +503,31 @@ export default function PortfolioForm({
               <label className="block text-xs font-bold text-gray-700 mb-1">
                 ครูผู้สอนผู้รับผิดชอบหลัก / ครูที่ปรึกษาโครงงาน
               </label>
-              <input
-                type="text"
-                placeholder="ชื่อครูผู้คุมทีมหรือดูแลโครงการ เช่น นางสาวเพียรพรรณ แสนขยัน"
-                value={responsiblePerson}
-                onChange={(e) => setResponsiblePerson(e.target.value)}
-                className="w-full bg-white border border-gray-300 rounded-xl px-3.5 py-2.5 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
-              />
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  placeholder="ชื่อครูผู้คุมทีมหรือดูแลโครงการ เช่น นางสาวเพียรพรรณ แสนขยัน"
+                  value={responsiblePerson}
+                  onChange={(e) => setResponsiblePerson(e.target.value)}
+                  className="flex-1 bg-white border border-gray-300 rounded-xl px-3.5 py-2.5 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none"
+                />
+                {teachers && teachers.length > 0 && (
+                  <select
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        setResponsiblePerson(e.target.value);
+                      }
+                    }}
+                    value=""
+                    className="max-w-[150px] sm:max-w-[180px] bg-slate-50 border border-gray-300 rounded-xl px-2 py-1.5 text-xs focus:border-blue-500 outline-none cursor-pointer"
+                  >
+                    <option value="">-- เลือกคุณครู --</option>
+                    {teachers.map((t) => (
+                      <option key={t.id} value={t.name}>{t.name}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
             </div>
 
           </div>

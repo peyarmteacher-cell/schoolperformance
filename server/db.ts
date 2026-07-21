@@ -216,6 +216,25 @@ async function autoInstallMySQLTables() {
       console.log('Auto-Seed: Seeded default Admin and Teacher credentials into MySQL users table.');
     }
 
+    // 3. Create Settings Table
+    await mysqlPool.query(`
+      CREATE TABLE IF NOT EXISTS settings (
+        setting_key VARCHAR(50) PRIMARY KEY,
+        setting_value TEXT
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // Seed default settings if empty
+    const [settingCountRows]: any = await mysqlPool.query('SELECT COUNT(*) as count FROM settings');
+    if (settingCountRows[0].count === 0) {
+      await mysqlPool.query(`
+        INSERT INTO settings (setting_key, setting_value) VALUES 
+        ('school_name', 'โรงเรียนบ้านหนองหว้า'),
+        ('school_logo', '')
+      `);
+      console.log('Auto-Seed: Seeded default school settings into MySQL settings table.');
+    }
+
     console.log('MySQL Database Auto-Installation and Updates checked and applied successfully.');
   } catch (err) {
     console.error('Error during MySQL tables installation:', err);
@@ -226,6 +245,7 @@ async function autoInstallMySQLTables() {
 interface DatabaseSchema {
   users: any[];
   portfolios: any[];
+  settings?: { setting_key: string; setting_value: string }[];
 }
 
 function initJSONDatabase() {
@@ -368,6 +388,10 @@ function initJSONDatabase() {
           approved: true,
           createdAt: '2026-02-25T11:20:00Z'
         }
+      ],
+      settings: [
+        { setting_key: 'school_name', setting_value: 'โรงเรียนบ้านหนองหว้า' },
+        { setting_key: 'school_logo', setting_value: '' }
       ]
     };
     fs.writeFileSync(JSON_DB_FILE, JSON.stringify(defaultData, null, 2), 'utf-8');
@@ -587,5 +611,55 @@ export async function setApprovalPortfolio(id: string, approved: boolean): Promi
       return true;
     }
     return false;
+  }
+}
+
+export async function querySettings(): Promise<Record<string, string>> {
+  if (isUsingMySQL && mysqlPool) {
+    const [rows]: any = await mysqlPool.query('SELECT * FROM settings');
+    const result: Record<string, string> = {
+      school_name: 'โรงเรียนบ้านหนองหว้า',
+      school_logo: ''
+    };
+    rows.forEach((r: any) => {
+      result[r.setting_key] = r.setting_value;
+    });
+    return result;
+  } else {
+    const db = readJSONDB();
+    const result: Record<string, string> = {
+      school_name: 'โรงเรียนบ้านหนองหว้า',
+      school_logo: ''
+    };
+    if (db.settings) {
+      db.settings.forEach((s: any) => {
+        result[s.setting_key] = s.setting_value;
+      });
+    }
+    return result;
+  }
+}
+
+export async function saveSetting(key: string, value: string): Promise<boolean> {
+  if (isUsingMySQL && mysqlPool) {
+    await mysqlPool.query(`
+      INSERT INTO settings (setting_key, setting_value) 
+      VALUES (?, ?) 
+      ON DUPLICATE KEY UPDATE setting_value = ?
+    `, [key, value, value]);
+    return true;
+  } else {
+    const db = readJSONDB();
+    if (!db.settings) {
+      db.settings = [];
+    }
+    const idx = db.settings.findIndex((s: any) => s.setting_key === key);
+    if (idx >= 0) {
+      db.settings[idx].setting_value = value;
+    } else {
+      db.settings.push({ setting_key: key, setting_value: value });
+    }
+    writeJSONDB(db);
+    return true;
   }
 }

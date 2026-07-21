@@ -14,7 +14,10 @@ import {
   getAppsScriptConfig, 
   saveAppsScriptConfig,
   getSessionUser,
-  clearSessionUser
+  clearSessionUser,
+  apiGetSettings,
+  apiSaveSettings,
+  apiGetUsers
 } from './services/portfolioService';
 import { PortfolioItem, PortfolioCategory, User, AppsScriptConfig, Attachment } from './types';
 import { Check, AlertCircle, X, Sparkles, HelpCircle } from 'lucide-react';
@@ -32,6 +35,13 @@ export default function App() {
   // 3. ควบคุมโมดูลการแก้ไขและเปิดดูไฟล์
   const [portfolioToEdit, setPortfolioToEdit] = useState<PortfolioItem | null>(null);
   const [viewItemDetail, setViewItemDetail] = useState<PortfolioItem | null>(null);
+
+  // 3b. ตั้งค่าชื่อและรูปภาพตราสัญลักษณ์โรงเรียน
+  const [settings, setSettings] = useState<{ school_name: string; school_logo: string }>({
+    school_name: 'โรงเรียนบ้านหนองหว้า',
+    school_logo: ''
+  });
+  const [teachers, setTeachers] = useState<User[]>([]);
 
   // 4. ระบบแจ้งเตือน (Notifications)
   const [notification, setNotification] = useState<{
@@ -53,6 +63,22 @@ export default function App() {
 
         const allItems = await getItems();
         setItems(allItems);
+
+        // โหลดข้อมูลการตั้งค่าโรงเรียน
+        try {
+          const fetchedSettings = await apiGetSettings();
+          setSettings(fetchedSettings);
+        } catch (settingsError) {
+          console.error('Failed to load school settings:', settingsError);
+        }
+
+        // โหลดข้อมูลรายชื่อคุณครู
+        try {
+          const users = await apiGetUsers();
+          setTeachers(users);
+        } catch (usersError) {
+          console.error('Failed to load user list:', usersError);
+        }
 
         // หากมีการเปิดแชร์ลิ้งค์มาทางพารามิเตอร์ เช่น ?item=school-1
         if (itemId) {
@@ -85,8 +111,27 @@ export default function App() {
     try {
       const allItems = await getItems();
       setItems(allItems);
+      // โหลดข้อมูลรายชื่อคุณครูใหม่ด้วยหากพึ่งลบ/เพิ่มคุณครู
+      const users = await apiGetUsers();
+      setTeachers(users);
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  // บันทึกการตั้งค่าชื่อและโลโก้โรงเรียน
+  const handleSaveSettings = async (newSettings: { school_name?: string; school_logo?: string }) => {
+    try {
+      const ok = await apiSaveSettings(newSettings);
+      if (ok) {
+        const fetchedSettings = await apiGetSettings();
+        setSettings(fetchedSettings);
+        triggerNotification('อัปเดตข้อมูลอัตลักษณ์โรงเรียนสำเร็จแล้ว!', 'success');
+      } else {
+        triggerNotification('บันทึกข้อมูลอัตลักษณ์โรงเรียนล้มเหลว', 'error');
+      }
+    } catch (err: any) {
+      triggerNotification(err.message || 'บันทึกข้อมูลล้มเหลว', 'error');
     }
   };
 
@@ -225,6 +270,7 @@ export default function App() {
               setActiveTab('list');
             }}
             onSuccess={(msg) => triggerNotification(msg, 'success')}
+            teachers={teachers}
           />
         );
 
@@ -237,6 +283,8 @@ export default function App() {
             onDisconnect={handleDisconnectAppsScript}
             onSuccess={(msg) => triggerNotification(msg, 'success')}
             onFailure={(msg) => triggerNotification(msg, 'error')}
+            settings={settings}
+            onSaveSettings={handleSaveSettings}
           />
         );
       case 'login':
@@ -267,7 +315,7 @@ export default function App() {
           <div className="flex items-center gap-2">
             <Sparkles className="text-amber-500 fill-current animate-pulse" size={16} />
             <span className="text-xs font-bold text-gray-700">
-              ยินดีต้อนรับสู่แอปพลิเคชันเวอร์ชันก้าวหน้า (PWA) • โรงเรียนบ้านหนองหว้า
+              ยินดีต้อนรับสู่แอปพลิเคชันเวอร์ชันก้าวหน้า (PWA) • {settings.school_name}
             </span>
           </div>
           <p className="text-[11px] text-gray-500">
@@ -284,6 +332,7 @@ export default function App() {
         onLogout={handleLogout}
         config={config}
         onOpenConfig={() => setActiveTab('setup')}
+        settings={settings}
       />
 
       {/* 3. ส่วนเนื้อหาหลัก (Main Content Section) */}
@@ -323,7 +372,7 @@ export default function App() {
 
       {/* 5. ฟูตเตอร์แอปพลิเคชัน (Footer Credits) */}
       <footer className="mt-auto border-t border-gray-200/60 pt-6 text-center text-[11px] text-gray-400 space-y-1.5 print:hidden">
-        <p>© 2026 ระบบประกันคุณภาพและแฟ้มสะสมงานดิจิทัล โรงเรียนบ้านหนองหว้า</p>
+        <p>© 2026 ระบบประกันคุณภาพและแฟ้มสะสมงานดิจิทัล {settings.school_name}</p>
         <p className="flex items-center justify-center gap-1">
           <span>ขับเคลื่อนด้วยระบบ</span>
           <span className="font-bold text-gray-600">Google Apps Script + Sheets + Drive API v3</span>

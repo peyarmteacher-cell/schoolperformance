@@ -9,6 +9,7 @@ interface HeaderProps {
   onLogout: () => void;
   config: AppsScriptConfig;
   onOpenConfig: () => void;
+  settings: { school_name: string; school_logo: string };
 }
 
 export default function Header({
@@ -17,7 +18,8 @@ export default function Header({
   currentUser,
   onLogout,
   config,
-  onOpenConfig
+  onOpenConfig,
+  settings
 }: HeaderProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -48,21 +50,25 @@ export default function Header({
           
           {/* Logo & Branding */}
           <div className="flex items-center gap-4 text-center md:text-left">
-            {/* Elegant SVG School Crest */}
-            <div className="relative w-16 h-16 bg-white rounded-full p-1.5 shadow-md flex-shrink-0 animate-pulse-slow">
-              <svg viewBox="0 0 100 100" className="w-full h-full text-blue-900">
-                {/* Gold Outer Ring */}
-                <circle cx="50" cy="50" r="46" fill="none" stroke="#F59E0B" strokeWidth="4" />
-                {/* Blue Inner Ring */}
-                <circle cx="50" cy="50" r="41" fill="#1E3A8A" />
-                {/* Book / Knowledge Icon */}
-                <path d="M25 65 L50 78 L75 65 L75 35 L50 48 L25 35 Z" fill="#F59E0B" opacity="0.9" />
-                {/* Torch / Flame */}
-                <path d="M50 20 C45 30 55 35 50 45 C48 35 46 30 50 20 Z" fill="#EF4444" />
-                <path d="M50 25 C48 30 52 32 50 38 C49 32 48 30 50 25 Z" fill="#F59E0B" />
-                {/* Star Accent */}
-                <polygon points="50,11 53,16 58,16 54,19 56,24 50,21 44,24 46,19 42,16 47,16" fill="#F59E0B" />
-              </svg>
+            {/* Elegant SVG School Crest or Custom Logo */}
+            <div className="relative w-16 h-16 bg-white rounded-full p-1.5 shadow-md flex-shrink-0 animate-pulse-slow overflow-hidden flex items-center justify-center">
+              {settings.school_logo ? (
+                <img src={settings.school_logo} alt="School Logo" className="w-full h-full object-contain" />
+              ) : (
+                <svg viewBox="0 0 100 100" className="w-full h-full text-blue-900">
+                  {/* Gold Outer Ring */}
+                  <circle cx="50" cy="50" r="46" fill="none" stroke="#F59E0B" strokeWidth="4" />
+                  {/* Blue Inner Ring */}
+                  <circle cx="50" cy="50" r="41" fill="#1E3A8A" />
+                  {/* Book / Knowledge Icon */}
+                  <path d="M25 65 L50 78 L75 65 L75 35 L50 48 L25 35 Z" fill="#F59E0B" opacity="0.9" />
+                  {/* Torch / Flame */}
+                  <path d="M50 20 C45 30 55 35 50 45 C48 35 46 30 50 20 Z" fill="#EF4444" />
+                  <path d="M50 25 C48 30 52 32 50 38 C49 32 48 30 50 25 Z" fill="#F59E0B" />
+                  {/* Star Accent */}
+                  <polygon points="50,11 53,16 58,16 54,19 56,24 50,21 44,24 46,19 42,16 47,16" fill="#F59E0B" />
+                </svg>
+              )}
               <div className="absolute -bottom-1 -right-1 bg-amber-500 rounded-full p-0.5 text-blue-950 border border-white">
                 <Sparkles size={12} className="fill-current" />
               </div>
@@ -74,7 +80,7 @@ export default function Header({
               </h1>
               <div className="flex items-center gap-2 mt-0.5 justify-center md:justify-start">
                 <span className="text-xs font-semibold bg-amber-500 text-blue-950 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                  โรงเรียนบ้านหนองหว้า
+                  {settings.school_name}
                 </span>
                 <span className="text-xs text-blue-200 hidden sm:inline">
                   | เพื่อการประกันคุณภาพและการประเมินสถานศึกษา
