@@ -6,6 +6,34 @@ require_once 'config.php';
 $years_query = "SELECT DISTINCT academicYear FROM portfolios ORDER BY academicYear DESC";
 $years_result = $conn->query($years_query);
 
+if (!$years_result) {
+    die("
+    <div style='font-family: sans-serif; padding: 30px; border: 1px solid #f5c6cb; background-color: #fff5f5; color: #721c24; border-radius: 16px; max-width: 650px; margin: 80px auto; box-shadow: 0 10px 25px rgba(0,0,0,0.05);'>
+        <div style='display: flex; align-items: center; gap: 15px; margin-bottom: 20px;'>
+            <span style='font-size: 40px;'>⚠️</span>
+            <div>
+                <h3 style='margin: 0; font-size: 18px; color: #b71c1c;'>เกิดข้อผิดพลาดในการเชื่อมต่อหรือคิวรีฐานข้อมูล!</h3>
+                <p style='margin: 5px 0 0; font-size: 13px; color: #5a6a85;'>ไม่พบตารางในฐานข้อมูล หรือข้อมูลเชื่อมต่อไม่ถูกต้อง</p>
+            </div>
+        </div>
+        <div style='background-color: #f1f5f9; padding: 15px; border-radius: 10px; font-family: monospace; font-size: 12px; color: #334155; border-left: 4px solid #cbd5e1; margin-bottom: 20px; overflow-x: auto;'>
+            MySQL Error: " . htmlspecialchars($conn->error) . "
+        </div>
+        <div style='font-size: 13px; color: #475569; line-height: 1.6;'>
+            💡 <strong>คำแนะนำในการแก้ไข:</strong>
+            <ul style='margin-top: 5px; padding-left: 20px;'>
+                <li>ตรวจสอบว่าคุณได้ <strong>นำเข้าตารางข้อมูลจากไฟล์ <code>database.sql</code></strong> เข้าไปที่ระบบฐานข้อมูล <code>" . htmlspecialchars(DB_NAME) . "</code> ใน phpMyAdmin เรียบร้อยแล้วหรือยัง</li>
+                <li>ตรวจสอบการกำหนดสิทธิ์ของบัญชีผู้ใช้งาน <code>" . htmlspecialchars(DB_USER) . "</code> ว่ามีสิทธิ์คิวรี/จัดการตารางหรือไม่</li>
+                <li>หากยังเชื่อมต่อไม่ได้ กรุณาปรับเปลี่ยนข้อมูล Host, User, Pass และ Name ในไฟล์ <code>config.php</code> ให้ตรงกับที่เซิร์ฟเวอร์จริงกำหนด</li>
+            </ul>
+        </div>
+        <div style='margin-top: 25px; text-align: center;'>
+            <a href='index.php' style='display: inline-block; padding: 10px 20px; background-color: #1e3a8a; color: white; border-radius: 10px; text-decoration: none; font-size: 13px; font-weight: bold;'>🔄 รีเฟรชหน้าเว็บ</a>
+        </div>
+    </div>
+    ");
+}
+
 // เงื่อนไขการกรอง
 $category_filter = isset($_GET['category']) ? $_GET['category'] : '';
 $year_filter = isset($_GET['year']) ? $_GET['year'] : '';
