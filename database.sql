@@ -1,8 +1,5 @@
 -- database.sql
--- นำเข้าไฟล์นี้ใน phpMyAdmin เพื่อสร้างฐานข้อมูลและตารางที่จำเป็นทั้งหมด
-
-CREATE DATABASE IF NOT EXISTS school_portfolio CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE school_portfolio;
+-- เลือกฐานข้อมูล schoolos12_nwperformance ใน phpMyAdmin แล้วนำเข้าไฟล์นี้เพื่อสร้างตารางทั้งหมด
 
 -- 1. ตารางผู้ใช้งานระบบ (แอดมิน, ครู)
 CREATE TABLE IF NOT EXISTS users (

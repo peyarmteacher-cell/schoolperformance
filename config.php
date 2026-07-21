@@ -3,9 +3,9 @@
 // ไฟล์กำหนดค่าการเชื่อมต่อฐานข้อมูล MySQL สำหรับ PHP 8.0.30+
 
 define('DB_HOST', 'localhost');
-define('DB_USER', 'root');
-define('DB_PASS', '');
-define('DB_NAME', 'school_portfolio');
+define('DB_USER', 'schoolos12_nwperformance');
+define('DB_PASS', 'N!qbzz!d2r4OvDj3');
+define('DB_NAME', 'schoolos12_nwperformance');
 
 $conn = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
 

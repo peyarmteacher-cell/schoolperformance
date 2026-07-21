@@ -1,8 +1,5 @@
 export const PHP_DATABASE_SQL = `-- database.sql
--- นำเข้าไฟล์นี้ใน phpMyAdmin เพื่อสร้างฐานข้อมูลและบัญชีเริ่มต้น
-
-CREATE DATABASE IF NOT EXISTS school_portfolio CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE school_portfolio;
+-- เลือกฐานข้อมูล schoolos12_nwperformance ใน phpMyAdmin แล้วนำเข้าไฟล์นี้เพื่อสร้างตารางทั้งหมด
 
 CREATE TABLE IF NOT EXISTS users (
   id VARCHAR(50) PRIMARY KEY,
@@ -52,9 +49,9 @@ export const PHP_CONFIG = `<?php
 // กำหนดค่าการเชื่อมต่อฐานข้อมูล MySQL
 
 $db_host = "localhost";
-$db_user = "root";
-$db_pass = "";
-$db_name = "school_portfolio";
+$db_user = "schoolos12_nwperformance";
+$db_pass = "N!qbzz!d2r4OvDj3";
+$db_name = "schoolos12_nwperformance";
 
 $conn = new mysqli($db_host, $db_user, $db_pass, $db_name);
 
