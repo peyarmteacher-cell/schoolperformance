@@ -81,13 +81,9 @@ if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'admin') {
         $school_logo = $_POST['school_logo']; // หากป้อนเป็น URL เดิม
 
         if (isset($_FILES['school_logo_file']) && $_FILES['school_logo_file']['error'] === UPLOAD_ERR_OK) {
-            $file_tmp = $_FILES['school_logo_file']['tmp_name'];
-            $file_type = $_FILES['school_logo_file']['type'];
-            
-            if (str_starts_with($file_type, 'image/')) {
-                $file_data = file_get_contents($file_tmp);
-                $base64 = 'data:' . $file_type . ';base64,' . base64_encode($file_data);
-                $school_logo = $base64;
+            $uploaded_logo = save_uploaded_image('school_logo_file', 'school_logo');
+            if (!empty($uploaded_logo)) {
+                $school_logo = $uploaded_logo;
             }
         }
 
@@ -148,8 +144,18 @@ $search_query = isset($_GET['search']) ? $_GET['search'] : '';
 $teacher_filter = isset($_GET['teacher_name']) ? $_GET['teacher_name'] : '';
 
 // ดึงรายชื่อคุณครูทั้งหมดเพื่อใช้ในตัวกรองคุณครูผู้รับผิดชอบผลงาน
-$all_teachers_res = $conn->query("SELECT id, name FROM users WHERE role = 'teacher' ORDER BY name ASC");
+$all_teachers_res = $conn->query("SELECT id, name, avatarUrl FROM users WHERE role = 'teacher' ORDER BY name ASC");
 $teachers_array = [];
+$user_avatars = [];
+
+// โหลดรูปโปรไฟล์ของทุกคนในระบบ (ครูและแอดมิน)
+$all_users_res = $conn->query("SELECT name, avatarUrl FROM users");
+if ($all_users_res) {
+    while ($u_row = $all_users_res->fetch_assoc()) {
+        $user_avatars[$u_row['name']] = $u_row['avatarUrl'];
+    }
+}
+
 if ($all_teachers_res) {
     while ($t_row = $all_teachers_res->fetch_assoc()) {
         $teachers_array[] = $t_row;
@@ -580,12 +586,50 @@ $latest_res = $conn->query("SELECT * FROM portfolios WHERE approved=1 ORDER BY c
                                             <span class="font-semibold text-gray-700">รางวัล/ประเภท:</span> 
                                             <span class="text-blue-950 font-bold"><?php echo htmlspecialchars($row['type']); ?> (<?php echo htmlspecialchars($row['rewardLevel']); ?>)</span>
                                         </p>
-                                        <p class="flex items-center gap-1.5">
-                                            <span>👤</span>
-                                            <span class="font-semibold text-gray-700">ผู้รับรางวัล:</span> 
-                                            <strong class="text-gray-800"><?php echo htmlspecialchars($row['ownerName']); ?></strong>
-                                        </p>
+                                        
+                                        <!-- ส่วนแสดงโปรไฟล์ผู้รับรางวัล/เจ้าของผลงานเชิงประจักษ์แบบหรูหรา -->
+                                        <div class="flex items-center gap-2 bg-white p-2 rounded-xl border border-slate-100 my-1 shadow-xs">
+                                            <?php
+                                                $owner_avatar = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150'; // Default
+                                                if (!empty($row['owner_img'])) {
+                                                    $owner_avatar = $row['owner_img'];
+                                                }
+                                            ?>
+                                            <img src="<?php echo htmlspecialchars($owner_avatar); ?>" class="w-7 h-7 rounded-full object-cover border border-slate-200 shadow-xs flex-shrink-0" alt="Owner Profile">
+                                            <div class="text-left leading-tight">
+                                                <span class="text-[8px] text-gray-400 font-bold block">ผู้รับรางวัล / เจ้าของ</span>
+                                                <strong class="text-gray-800 text-[10px] font-extrabold block"><?php echo htmlspecialchars($row['ownerName']); ?></strong>
+                                            </div>
+                                        </div>
                                     </div>
+
+                                    <!-- รูปประกอบผลงานเชิงประจักษ์ (เกียรติบัตร & รูปรับรางวัล) ที่อัปโหลดตรง -->
+                                    <?php if (!empty($row['certificate_img']) || !empty($row['award_img'])): ?>
+                                        <div class="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-slate-100">
+                                            <?php if (!empty($row['certificate_img'])): ?>
+                                                <div class="space-y-1">
+                                                    <span class="text-[9px] font-extrabold text-slate-400 block">📜 ภาพหลักฐานเกียรติบัตร:</span>
+                                                    <a href="<?php echo htmlspecialchars($row['certificate_img']); ?>" target="_blank" class="block rounded-xl overflow-hidden border border-slate-200 shadow-xs hover:border-blue-500 transition-all bg-slate-50 relative group">
+                                                        <img src="<?php echo htmlspecialchars($row['certificate_img']); ?>" class="w-full h-20 object-cover group-hover:scale-105 transition-transform duration-300" alt="เกียรติบัตร">
+                                                        <div class="absolute inset-0 bg-black/0 group-hover:bg-black/10 flex items-center justify-center transition-all">
+                                                            <span class="text-white text-[9px] bg-black/50 px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity">🔍 ดูภาพ</span>
+                                                        </div>
+                                                    </a>
+                                                </div>
+                                            <?php endif; ?>
+                                            <?php if (!empty($row['award_img'])): ?>
+                                                <div class="space-y-1">
+                                                    <span class="text-[9px] font-extrabold text-slate-400 block">🏆 ภาพกิจกรรม / รับรางวัล:</span>
+                                                    <a href="<?php echo htmlspecialchars($row['award_img']); ?>" target="_blank" class="block rounded-xl overflow-hidden border border-slate-200 shadow-xs hover:border-blue-500 transition-all bg-slate-50 relative group">
+                                                        <img src="<?php echo htmlspecialchars($row['award_img']); ?>" class="w-full h-20 object-cover group-hover:scale-105 transition-transform duration-300" alt="ภาพรับรางวัล">
+                                                        <div class="absolute inset-0 bg-black/0 group-hover:bg-black/10 flex items-center justify-center transition-all">
+                                                            <span class="text-white text-[9px] bg-black/50 px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity">🔍 ดูภาพ</span>
+                                                        </div>
+                                                    </a>
+                                                </div>
+                                            <?php endif; ?>
+                                        </div>
+                                    <?php endif; ?>
                                 </div>
 
                                 <div class="mt-4 pt-3 border-t border-gray-100 flex justify-between items-center">
@@ -742,12 +786,18 @@ $latest_res = $conn->query("SELECT * FROM portfolios WHERE approved=1 ORDER BY c
                                         }
                                     }
                                     if (empty($cover_image)) {
-                                        if ($row['category'] === 'school') {
-                                            $cover_image = 'https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&q=80&w=600';
-                                        } else if ($row['category'] === 'teacher') {
-                                            $cover_image = 'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?auto=format&fit=crop&q=80&w=600';
+                                        if (!empty($row['certificate_img'])) {
+                                            $cover_image = $row['certificate_img'];
+                                        } elseif (!empty($row['award_img'])) {
+                                            $cover_image = $row['award_img'];
                                         } else {
-                                            $cover_image = 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&q=80&w=600';
+                                            if ($row['category'] === 'school') {
+                                                $cover_image = 'https://images.unsplash.com/photo-1541339907198-e08756dedf3f?auto=format&fit=crop&q=80&w=600';
+                                            } else if ($row['category'] === 'teacher') {
+                                                $cover_image = 'https://images.unsplash.com/photo-1497633762265-9d179a990aa6?auto=format&fit=crop&q=80&w=600';
+                                            } else {
+                                                $cover_image = 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&q=80&w=600';
+                                            }
                                         }
                                     }
                                 ?>
@@ -799,11 +849,27 @@ $latest_res = $conn->query("SELECT * FROM portfolios WHERE approved=1 ORDER BY c
                                             <span class="font-bold text-gray-700">รางวัล/ประเภท:</span> 
                                             <span class="text-blue-900 font-bold"><?php echo htmlspecialchars($row['type']); ?> (ระดับ<?php echo htmlspecialchars($row['rewardLevel']); ?>)</span>
                                         </p>
-                                        <p class="flex items-center gap-1.5">
-                                            <span class="text-sm">👤</span>
-                                            <span class="font-bold text-gray-700">ผู้รับรางวัล/เจ้าของ:</span> 
-                                            <strong class="text-gray-800"><?php echo htmlspecialchars($row['ownerName']); ?> (<?php echo htmlspecialchars($row['position']); ?>)</strong>
-                                        </p>
+                                        
+                                        <!-- ส่วนแสดงโปรไฟล์ผู้รับรางวัล/เจ้าของผลงานเชิงประจักษ์แบบหรูหรา -->
+                                        <div class="flex items-center gap-2.5 bg-white p-2 rounded-xl border border-slate-100 my-1 shadow-xs">
+                                            <?php
+                                                $owner_avatar = 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150'; // Default
+                                                if (!empty($row['owner_img'])) {
+                                                    $owner_avatar = $row['owner_img'];
+                                                } elseif (isset($user_avatars[$row['ownerName']]) && !empty($user_avatars[$row['ownerName']])) {
+                                                    $owner_avatar = $user_avatars[$row['ownerName']];
+                                                }
+                                            ?>
+                                            <img src="<?php echo htmlspecialchars($owner_avatar); ?>" class="w-8 h-8 rounded-full object-cover border border-slate-200 shadow-xs flex-shrink-0" alt="Owner Profile">
+                                            <div class="text-left leading-tight">
+                                                <span class="text-[9px] text-gray-400 font-bold block">ผู้รับรางวัล / เจ้าของ</span>
+                                                <strong class="text-gray-800 text-[11px] font-extrabold block"><?php echo htmlspecialchars($row['ownerName']); ?></strong>
+                                                <?php if(!empty($row['position'])): ?>
+                                                    <span class="text-[9px] text-gray-500 font-medium"><?php echo htmlspecialchars($row['position']); ?></span>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+
                                         <p class="flex items-center gap-1.5">
                                             <span class="text-sm">🏢</span>
                                             <span class="font-bold text-gray-700">หน่วยงานผู้มอบ:</span> 
@@ -817,6 +883,34 @@ $latest_res = $conn->query("SELECT * FROM portfolios WHERE approved=1 ORDER BY c
                                             </p>
                                         <?php endif; ?>
                                     </div>
+
+                                    <!-- รูปประกอบผลงานเชิงประจักษ์ (เกียรติบัตร & รูปรับรางวัล) ที่อัปโหลดตรง -->
+                                    <?php if (!empty($row['certificate_img']) || !empty($row['award_img'])): ?>
+                                        <div class="grid grid-cols-2 gap-3 mt-3 pt-3 border-t border-slate-100">
+                                            <?php if (!empty($row['certificate_img'])): ?>
+                                                <div class="space-y-1">
+                                                    <span class="text-[9px] font-extrabold text-slate-400 block">📜 ภาพหลักฐานเกียรติบัตร:</span>
+                                                    <a href="<?php echo htmlspecialchars($row['certificate_img']); ?>" target="_blank" class="block rounded-xl overflow-hidden border border-slate-200 shadow-xs hover:border-blue-500 transition-all bg-slate-50 relative group">
+                                                        <img src="<?php echo htmlspecialchars($row['certificate_img']); ?>" class="w-full h-24 object-cover group-hover:scale-105 transition-transform duration-300" alt="เกียรติบัตร">
+                                                        <div class="absolute inset-0 bg-black/0 group-hover:bg-black/10 flex items-center justify-center transition-all">
+                                                            <span class="text-white text-[10px] bg-black/50 px-2 py-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity">🔍 ขยาย</span>
+                                                        </div>
+                                                    </a>
+                                                </div>
+                                            <?php endif; ?>
+                                            <?php if (!empty($row['award_img'])): ?>
+                                                <div class="space-y-1">
+                                                    <span class="text-[9px] font-extrabold text-slate-400 block">🏆 ภาพกิจกรรม / รับรางวัล:</span>
+                                                    <a href="<?php echo htmlspecialchars($row['award_img']); ?>" target="_blank" class="block rounded-xl overflow-hidden border border-slate-200 shadow-xs hover:border-blue-500 transition-all bg-slate-50 relative group">
+                                                        <img src="<?php echo htmlspecialchars($row['award_img']); ?>" class="w-full h-24 object-cover group-hover:scale-105 transition-transform duration-300" alt="ภาพรับรางวัล">
+                                                        <div class="absolute inset-0 bg-black/0 group-hover:bg-black/10 flex items-center justify-center transition-all">
+                                                            <span class="text-white text-[10px] bg-black/50 px-2 py-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity">🔍 ขยาย</span>
+                                                        </div>
+                                                    </a>
+                                                </div>
+                                            <?php endif; ?>
+                                        </div>
+                                    <?php endif; ?>
                                 </div>
 
                                 <div class="mt-5 pt-4 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-[10px] text-gray-400">

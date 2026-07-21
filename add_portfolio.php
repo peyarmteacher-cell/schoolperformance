@@ -35,6 +35,15 @@ if (isset($_POST['submit'])) {
     $position = $conn->real_escape_string($_POST['position']);
     $department = $conn->real_escape_string($_POST['department']);
     
+    // จัดการอัปโหลดรูปภาพ 3 ชนิด (เก็บรูปเป็นไฟล์จริงใน uploads/ หรือ Base64 สำรอง)
+    $certificate_img = save_uploaded_image('certificate_file', 'cert');
+    $award_img = save_uploaded_image('award_file', 'award');
+    $owner_img = save_uploaded_image('owner_file', 'owner');
+
+    $certificate_img_esc = $conn->real_escape_string($certificate_img);
+    $award_img_esc = $conn->real_escape_string($award_img);
+    $owner_img_esc = $conn->real_escape_string($owner_img);
+    
     // ดึงลิงก์เอกสารหลักฐานแนบ
     $attachment_url = isset($_POST['attachment_url']) ? $conn->real_escape_string($_POST['attachment_url']) : '';
     $attachments_json = '[]';
@@ -56,8 +65,8 @@ if (isset($_POST['submit'])) {
     $approved = ($_SESSION['user_role'] === 'admin') ? 1 : 0;
     $createdAt = date('Y-m-d\TH:i:s\Z');
     
-    $query = "INSERT INTO portfolios (id, category, type, title, description, academicYear, awardDate, giver, rewardLevel, ownerName, position, department, approved, createdAt, attachments) 
-              VALUES ('$id', '$category', '$type', '$title', '$description', '$academicYear', '$awardDate', '$giver', '$rewardLevel', '$ownerName', '$position', '$department', $approved, '$createdAt', '$attachments_json')";
+    $query = "INSERT INTO portfolios (id, category, type, title, description, academicYear, awardDate, giver, rewardLevel, ownerName, position, department, approved, createdAt, attachments, certificate_img, award_img, owner_img) 
+              VALUES ('$id', '$category', '$type', '$title', '$description', '$academicYear', '$awardDate', '$giver', '$rewardLevel', '$ownerName', '$position', '$department', $approved, '$createdAt', '$attachments_json', '$certificate_img_esc', '$award_img_esc', '$owner_img_esc')";
               
     if ($conn->query($query)) {
         header("Location: index.php?msg=added");
@@ -102,7 +111,7 @@ if (isset($_POST['submit'])) {
         <?php endif; ?>
 
         <!-- ฟอร์มกรอกข้อมูล -->
-        <form method="POST" class="space-y-4 text-left">
+        <form method="POST" enctype="multipart/form-data" class="space-y-4 text-left">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <label class="text-xs font-bold text-gray-600 block mb-1">📂 หมวดหมู่ผลงาน</label>
@@ -182,6 +191,63 @@ if (isset($_POST['submit'])) {
                 </div>
             </div>
 
+            <!-- เพิ่มส่วนสำหรับอัปโหลดภาพเกียรติบัตร ภาพรับรางวัล และภาพเจ้าของผลงานโดยตรง -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 border-t border-gray-100 pt-4">
+                <!-- 1. อัปโหลดรูปเกียรติบัตร -->
+                <div class="space-y-2 text-left">
+                    <label class="text-xs font-bold text-gray-600 block">📜 รูปภาพเกียรติบัตร (Certificate)</label>
+                    <div class="border border-dashed border-gray-300 hover:border-blue-500 rounded-2xl p-4 text-center transition-all cursor-pointer bg-slate-50/50 relative flex flex-col items-center justify-center min-h-[120px]" onclick="document.getElementById('certificate_file').click()">
+                        <input type="file" id="certificate_file" name="certificate_file" accept="image/*" class="hidden" onchange="previewFile(this, 'certificate-preview', 'certificate-placeholder')">
+                        
+                        <div id="certificate-preview" class="hidden">
+                            <img id="certificate-preview-img" src="" class="max-h-20 object-contain mx-auto rounded border bg-white p-1">
+                            <p class="text-[9px] text-emerald-600 font-bold mt-1">✓ เลือกรูปเกียรติบัตรแล้ว</p>
+                        </div>
+                        <div id="certificate-placeholder" class="space-y-1">
+                            <span class="text-2xl block">📜</span>
+                            <p class="text-[10px] font-bold text-slate-600">คลิกอัปโหลดเกียรติบัตร</p>
+                            <p class="text-[8px] text-gray-400 font-medium">ไฟล์รูปภาพ (PNG, JPG, WEBP)</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. อัปโหลดรูปรับรางวัล -->
+                <div class="space-y-2 text-left">
+                    <label class="text-xs font-bold text-gray-600 block">🏆 รูปภาพรับรางวัล / กิจกรรม</label>
+                    <div class="border border-dashed border-gray-300 hover:border-blue-500 rounded-2xl p-4 text-center transition-all cursor-pointer bg-slate-50/50 relative flex flex-col items-center justify-center min-h-[120px]" onclick="document.getElementById('award_file').click()">
+                        <input type="file" id="award_file" name="award_file" accept="image/*" class="hidden" onchange="previewFile(this, 'award-preview', 'award-placeholder')">
+                        
+                        <div id="award-preview" class="hidden">
+                            <img id="award-preview-img" src="" class="max-h-20 object-contain mx-auto rounded border bg-white p-1">
+                            <p class="text-[9px] text-emerald-600 font-bold mt-1">✓ เลือกรูปรับรางวัลแล้ว</p>
+                        </div>
+                        <div id="award-placeholder" class="space-y-1">
+                            <span class="text-2xl block">🏆</span>
+                            <p class="text-[10px] font-bold text-slate-600">คลิกอัปโหลดภาพกิจกรรม</p>
+                            <p class="text-[8px] text-gray-400 font-medium">ไฟล์รูปภาพ (PNG, JPG, WEBP)</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. อัปโหลดภาพเจ้าของผลงาน -->
+                <div class="space-y-2 text-left">
+                    <label class="text-xs font-bold text-gray-600 block">👤 รูปภาพคุณครูหรือนักเรียน</label>
+                    <div class="border border-dashed border-gray-300 hover:border-blue-500 rounded-2xl p-4 text-center transition-all cursor-pointer bg-slate-50/50 relative flex flex-col items-center justify-center min-h-[120px]" onclick="document.getElementById('owner_file').click()">
+                        <input type="file" id="owner_file" name="owner_file" accept="image/*" class="hidden" onchange="previewFile(this, 'owner-preview', 'owner-placeholder')">
+                        
+                        <div id="owner-preview" class="hidden">
+                            <img id="owner-preview-img" src="" class="max-h-20 object-contain mx-auto rounded border bg-white p-1">
+                            <p class="text-[9px] text-emerald-600 font-bold mt-1">✓ เลือกรูปเจ้าของผลงานแล้ว</p>
+                        </div>
+                        <div id="owner-placeholder" class="space-y-1">
+                            <span class="text-2xl block">👤</span>
+                            <p class="text-[10px] font-bold text-slate-600">คลิกอัปโหลดรูปผู้รับรางวัล</p>
+                            <p class="text-[8px] text-gray-400 font-medium">ไฟล์รูปภาพ (PNG, JPG, WEBP)</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div class="border-t border-gray-100 pt-4 space-y-3">
                 <label class="text-xs font-bold text-gray-600 block">🔗 เอกสารแนบหลักฐาน (อัปโหลดเข้า Google Drive)</label>
                 
@@ -227,6 +293,19 @@ if (isset($_POST['submit'])) {
     </div>
 
     <script>
+        // ฟังก์ชันแสดงตัวอย่างรูปภาพเมื่อเลือกไฟล์ทันทีแบบ Realtime
+        function previewFile(input, previewId, placeholderId) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    document.getElementById(previewId + '-img').src = e.target.result;
+                    document.getElementById(previewId).classList.remove('hidden');
+                    document.getElementById(placeholderId).classList.add('hidden');
+                };
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+
         <?php if (!empty($google_apps_script_url)): ?>
         const uploadZone = document.getElementById('upload-zone');
         const fileInput = document.getElementById('file-uploader');

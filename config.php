@@ -48,6 +48,9 @@ function auto_migrate_db($conn) {
       studentClass VARCHAR(100),
       responsiblePerson VARCHAR(100),
       attachments TEXT,
+      certificate_img LONGTEXT,
+      award_img LONGTEXT,
+      owner_img LONGTEXT,
       approved TINYINT(1) DEFAULT 0,
       createdAt VARCHAR(50) NOT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
@@ -55,7 +58,7 @@ function auto_migrate_db($conn) {
     // 3. ตารางสำหรับบันทึกการตั้งค่าระบบ (เช่น ชื่อโรงเรียน, โลโก้, Google Drive ID)
     $conn->query("CREATE TABLE IF NOT EXISTS settings (
       setting_key VARCHAR(50) PRIMARY KEY,
-      setting_value TEXT
+      setting_value LONGTEXT
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
     // ตรวจสอบและเพิ่มบัญชีผู้ใช้งานตั้งต้น หากตารางว่างเปล่า
@@ -76,8 +79,17 @@ function auto_migrate_db($conn) {
         ('google_apps_script_url', '')");
     }
 
+    // ปรับปรุงโครงสร้างคอลัมน์ของ settings ให้เป็น LONGTEXT เสมอเพื่อความมั่นใจ
+    $conn->query("ALTER TABLE settings MODIFY COLUMN setting_value LONGTEXT");
+
     // ตรวจสอบความสมบูรณ์ของฟิลด์เพิ่มเติมในอนาคต (เพื่อความยืดหยุ่น)
-    $cols_portfolio = ['studentClass' => 'VARCHAR(100) AFTER department', 'responsiblePerson' => 'VARCHAR(100) AFTER studentClass'];
+    $cols_portfolio = [
+        'studentClass' => 'VARCHAR(100) AFTER department', 
+        'responsiblePerson' => 'VARCHAR(100) AFTER studentClass',
+        'certificate_img' => 'LONGTEXT AFTER attachments',
+        'award_img' => 'LONGTEXT AFTER certificate_img',
+        'owner_img' => 'LONGTEXT AFTER award_img'
+    ];
     foreach ($cols_portfolio as $col_name => $col_def) {
         $check_col = $conn->query("SHOW COLUMNS FROM portfolios LIKE '$col_name'");
         if ($check_col && $check_col->num_rows == 0) {
@@ -106,5 +118,48 @@ function set_setting($conn, $key, $value) {
     $value_esc = $conn->real_escape_string($value);
     $conn->query("INSERT INTO settings (setting_key, setting_value) VALUES ('$key_esc', '$value_esc') 
                   ON DUPLICATE KEY UPDATE setting_value = '$value_esc'");
+}
+
+// ฟังก์ชันอัปโหลดรูปภาพเก็บเป็นไฟล์จริง (ถ้าเขียนไฟล์ลง Server สำเร็จ) หรือแปลงเป็น Base64 (ถ้าเขียนไฟล์ไม่ได้)
+function save_uploaded_image($file_field, $prefix = 'img') {
+    if (!isset($_FILES[$file_field]) || $_FILES[$file_field]['error'] !== UPLOAD_ERR_OK) {
+        return '';
+    }
+
+    $file_tmp = $_FILES[$file_field]['tmp_name'];
+    $file_type = $_FILES[$file_field]['type'];
+
+    if (!str_starts_with($file_type, 'image/')) {
+        return '';
+    }
+
+    // สร้างโฟลเดอร์ uploads หากไม่มีในระบบ
+    $uploads_dir = 'uploads';
+    if (!is_dir($uploads_dir)) {
+        @mkdir($uploads_dir, 0777, true);
+    }
+
+    // ลองย้ายไฟล์ไปเซฟที่เครื่องจริงก่อน
+    if (is_writable($uploads_dir)) {
+        $ext = pathinfo($_FILES[$file_field]['name'], PATHINFO_EXTENSION);
+        if (empty($ext)) {
+            $ext = str_replace('image/', '', $file_type);
+            if ($ext === 'jpeg') $ext = 'jpg';
+        }
+        $new_filename = $prefix . '_' . time() . '_' . rand(1000, 9999) . '.' . strtolower($ext);
+        $target_path = $uploads_dir . '/' . $new_filename;
+
+        if (@move_uploaded_file($file_tmp, $target_path)) {
+            return $target_path; // คืนค่าเป็นพาธไฟล์จริงบนเซิร์ฟเวอร์
+        }
+    }
+
+    // หากย้ายไฟล์จริงไม่สำเร็จ (ติดสิทธิ์ของ Folder) ให้แปลงเป็น Base64 เพื่อเซฟลงฐานข้อมูลเป็นทางเลือกสำรอง (Fallback)
+    $file_data = @file_get_contents($file_tmp);
+    if ($file_data !== false) {
+        return 'data:' . $file_type . ';base64,' . base64_encode($file_data);
+    }
+
+    return '';
 }
 ?>
